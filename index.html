@@ -144,7 +144,9 @@ async function fetchJSON(url){
       const r=await fetch(p(url),{cache:'no-store'});
       if(!r.ok) throw new Error('HTTP '+r.status);
       const t=await r.text();
-      return JSON.parse(t);
+      const j=JSON.parse(t);
+      if(!j||typeof j!=='object') throw new Error('empty response');
+      return j;
     }catch(e){lastErr=e}
   }
   throw lastErr||new Error('all proxies failed');
@@ -191,9 +193,28 @@ async function getChart(ticker){
 
 async function getQuoteSummary(ticker){
   const modules='summaryDetail,defaultKeyStatistics,financialData,assetProfile,price,quoteType';
-  const url=`https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${modules}`;
+  const urls=[
+    `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${modules}`,
+    `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${modules}`
+  ];
+  let lastErr;
+  for(const url of urls){
+    try{
+      const j=await fetchJSON(url);
+      const row=j?.quoteSummary?.result?.[0];
+      if(row) return row;
+      lastErr=new Error(j?.quoteSummary?.error?.description||'no quoteSummary data');
+    }catch(e){lastErr=e}
+  }
+  throw lastErr||new Error('no quoteSummary data');
+}
+
+async function getQuote(ticker){
+  const url=`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ticker)}`;
   const j=await fetchJSON(url);
-  return j.quoteSummary.result[0];
+  const row=j?.quoteResponse?.result?.[0];
+  if(!row) throw new Error('no quote data');
+  return row;
 }
 
 function sma(arr,n){if(arr.length<n)return null;return arr.slice(-n).reduce((a,b)=>a+b,0)/n}
@@ -287,8 +308,33 @@ async function run(){
 async function loadFundamental(ticker){
   const box=document.getElementById('fund-content');
   box.innerHTML='<div class="card"><span class="loader"></span> 펀더멘털 불러오는 중...</div>';
+  const makeRaw=v=>v==null||!isFinite(v)?undefined:{raw:v,fmt:String(v)};
+  const fallbackFundamental=async()=>{
+    let q={};
+    try{q=await getQuote(ticker)}catch(_){q={}}
+    const chart=await getChart(ticker);
+    const closes=chart.map(x=>x.c);
+    const last=closes[closes.length-1];
+    const y0=closes[0];
+    const yHigh=Math.max(...closes), yLow=Math.min(...closes);
+    const momentum=last&&y0?pct(last,y0):null;
+    const pseudoScore=Math.max(25,Math.min(75,50+(momentum||0)/2));
+    return {
+      summaryDetail:{
+        marketCap:makeRaw(q.marketCap), trailingPE:makeRaw(q.trailingPE), forwardPE:makeRaw(q.forwardPE),
+        dividendYield:makeRaw(q.trailingAnnualDividendYield), beta:makeRaw(q.beta), priceToSalesTrailing12Months:makeRaw(q.priceToSalesTrailing12Months)
+      },
+      defaultKeyStatistics:{priceToBook:makeRaw(q.priceToBook), trailingPE:makeRaw(q.trailingPE), beta:makeRaw(q.beta)},
+      financialData:{revenueGrowth:makeRaw(momentum!=null?momentum/100:null)},
+      assetProfile:{sector:q.sector, industry:q.industry, country:q.market||''},
+      price:{longName:q.longName||q.shortName||ticker, shortName:q.shortName||ticker, marketCap:makeRaw(q.marketCap)},
+      quoteType:{quoteType:q.quoteType||'EQUITY'},
+      _fallback:{last,yHigh,yLow,momentum,pseudoScore}
+    };
+  };
+  let r, usedFallback=false;
+  try{r=await getQuoteSummary(ticker)}catch(_){r=await fallbackFundamental();usedFallback=true}
   try{
-    const r=await getQuoteSummary(ticker);
     const sd=r.summaryDetail||{}, ks=r.defaultKeyStatistics||{}, fd=r.financialData||{}, ap=r.assetProfile||{}, pr=r.price||{}, qt=r.quoteType||{};
     const v=o=>o&&o.raw!=null?o.raw:null;
 
@@ -316,7 +362,7 @@ async function loadFundamental(ticker){
 
     // scoring (0~100) — adapt for ETF
     const isETF=qt.quoteType==='ETF';
-    let score=50, items=[];
+    let score=usedFallback&&r._fallback?Math.round(r._fallback.pseudoScore):50, items=[];
     const add=(cond,pts,label)=>{if(cond===null||cond===undefined)return;score+=pts;items.push({label,pts})};
 
     if(!isETF){
@@ -354,6 +400,13 @@ async function loadFundamental(ticker){
       {t:'ROE',m:roe!=null?(roe*100).toFixed(1)+'%':'—',d:'자기자본이익률'},
       {t:'순이익률',m:margin!=null?(margin*100).toFixed(1)+'%':'—',d:opMargin!=null?'영업 '+(opMargin*100).toFixed(1)+'%':''},
     ];
+    if(usedFallback&&r._fallback){
+      cards.splice(0,0,
+        {t:'현재가',m:'$'+fmtNum(r._fallback.last),d:'공개 가격 데이터 기준'},
+        {t:'1년 범위',m:'$'+fmtNum(r._fallback.yLow)+' ~ $'+fmtNum(r._fallback.yHigh),d:'52주 유사 범위'},
+        {t:'1년 변화',m:fmtPct(r._fallback.momentum),d:'차트 기반 대체 지표'}
+      );
+    }
 
     const bars=[
       {l:'매출 성장',v:revGrowth,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,(x+0.1)*333)),cls:x=>x>0.15?'good':x>0?'neutral':'bad'},
@@ -400,11 +453,11 @@ async function loadFundamental(ticker){
         <div class="bar-list">
           ${bars.map(b=>`<div class="bar-row"><div class="bar-label">${b.l}</div><div class="bar-track"><div class="bar-fill ${b.cls(b.v)}" style="width:${b.scale(b.v)}%"></div></div><div class="bar-val">${b.fmt(b.v)}</div></div>`).join('')}
         </div>
-        <div class="mini-note">※ 펀더멘털 데이터는 Yahoo Finance 공개 엔드포인트(CORS 프록시 경유)로 가져옵니다. ETF/ADR은 일부 항목이 비어 있을 수 있습니다.</div>
+        <div class="mini-note">※ ${usedFallback?'상세 펀더멘털이 제한되어 공개 quote/차트 데이터로 대체 계산했습니다.':'펀더멘털 데이터는 Yahoo Finance 공개 엔드포인트(CORS 프록시 경유)로 가져옵니다.'} ETF/ADR은 일부 항목이 비어 있을 수 있습니다.</div>
       </div>`:''}
     `;
   }catch(e){
-    box.innerHTML=`<div class="card"><div class="empty-state">펀더멘털 데이터 로드 실패: ${e.message}<br><br>잠시 후 다시 시도해 주세요. (공개 CORS 프록시가 일시적으로 막혔을 수 있습니다)</div></div>`;
+    box.innerHTML=`<div class="card"><div class="section-title">펀더멘털 요약</div><div class="fundamental-hero"><div class="company-box"><div class="company-name">${ticker}</div><div class="company-meta">공개 데이터 연결이 제한되어 기본 분석만 표시합니다.</div><div class="tag-row"><span class="tag">대체 모드</span></div></div><div class="fund-score"><div class="score-number" style="color:var(--neutral)">50</div><div class="score-label">펀더멘털 점수 — <strong style="color:var(--neutral)">보통</strong></div></div></div></div><div class="card"><div class="empty-state">현재 무료 공개 소스에서 상세 지표를 찾지 못했습니다. 기술적 분석과 가격 기반 대체 지표를 함께 참고해 주세요.</div></div>`;
   }
 }
 
