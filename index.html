@@ -225,35 +225,181 @@ async function getFinvizData(ticker){
   }catch(_){return null}
 }
 
+async function getStockAnalysisData(ticker){
+  try{
+    const slug=String(ticker||'').toLowerCase().replace('.', '-');
+    const url=`https://stockanalysis.com/stocks/${encodeURIComponent(slug)}/statistics/`;
+    const html=await fetchText(url);
+    return parseStockAnalysisHtml(html);
+  }catch(_){return null}
+}
+
+const LAST_KNOWN_FUNDAMENTALS={
+  // CORS 프록시가 모두 막힐 때 TSM 화면이 전부 공란이 되는 것을 막는 최후 대체값입니다.
+  // 가능하면 Yahoo/Finviz/StockAnalysis 실시간 스크래핑 값이 먼저 사용됩니다.
+  TSM:{
+    asOf:'2026-05-06', source:'Finviz/StockAnalysis 스냅샷',
+    name:'Taiwan Semiconductor Manufacturing ADR', sector:'Technology', industry:'Semiconductors', country:'Taiwan',
+    mcap:2045.61e9, pe:32.78, fpe:20.16, peg:0.65, ps:15.40, pb:11.86,
+    divY:0.0085, roe:0.3879, roa:0.2569, grossM:0.6102, opMargin:0.5318, profitM:0.4696,
+    debtEq:17, currRatio:2.49, revGrowth:0.4049, earnGrowth:0.5155, beta:1.40
+  }
+};
+function getLastKnownFundamental(ticker){return LAST_KNOWN_FUNDAMENTALS[String(ticker||'').toUpperCase()]||null}
+
+const FUND_LABELS=[
+  'Forward P/E','P/E','PEG','P/S','P/B','Market Cap','Dividend TTM','Dividend Est.','Dividend %','Dividend Yield',
+  'ROE','ROA','Gross Margin','Oper. Margin','Operating Margin','Profit Margin','Debt/Eq','Debt / Equity','Current Ratio','Quick Ratio',
+  'Sales Q/Q','Sales Y/Y TTM','Revenue Growth Forecast (5Y)','EPS this Y','EPS Y/Y TTM','EPS Q/Q','EPS next 5Y','EPS Growth Forecast (5Y)',
+  'Beta','Beta (5Y)','PE Ratio','Forward PE','PS Ratio','PB Ratio','PEG Ratio','Return on Equity (ROE)','Return on Assets (ROA)',
+  'Employees','Price','Sales','Income'
+];
+function decodeHtmlEntities(s){
+  const text=String(s||'');
+  if(typeof document!=='undefined'){
+    const ta=document.createElement('textarea');
+    ta.innerHTML=text;
+    return ta.value;
+  }
+  return text
+    .replace(/&nbsp;/gi,' ')
+    .replace(/&amp;/gi,'&')
+    .replace(/&lt;/gi,'<')
+    .replace(/&gt;/gi,'>')
+    .replace(/&quot;/gi,'"')
+    .replace(/&#39;/gi,"'");
+}
+function htmlToPlainText(html){
+  return decodeHtmlEntities(String(html||'')
+    .replace(/<script[\s\S]*?<\/script>/gi,' ')
+    .replace(/<style[\s\S]*?<\/style>/gi,' ')
+    .replace(/<[^>]+>/g,' '))
+    .replace(/\s+/g,' ')
+    .trim();
+}
+function escapeRegExp(s){return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
+function metricBlocksFromText(text, labels=FUND_LABELS){
+  const compact=String(text||'').replace(/\s+/g,' ').trim();
+  const matches=[];
+  const sorted=[...labels].sort((a,b)=>b.length-a.length);
+  for(const label of sorted){
+    const pat=escapeRegExp(label).replace(/\s+/g,'\\s+');
+    const re=new RegExp(`(^|\\s)${pat}(?=\\s|:|$)`,'gi');
+    let m;
+    while((m=re.exec(compact))){
+      const lead=m[1]?m[1].length:0;
+      matches.push({label,start:m.index+lead,end:m.index+m[0].length});
+    }
+  }
+  matches.sort((a,b)=>a.start-b.start || (b.end-b.start)-(a.end-a.start));
+  const filtered=[];
+  for(const m of matches){
+    if(filtered.some(x=>m.start>=x.start&&m.end<=x.end)) continue;
+    filtered.push(m);
+  }
+  filtered.sort((a,b)=>a.start-b.start);
+  const out={};
+  for(let i=0;i<filtered.length;i++){
+    const cur=filtered[i];
+    const next=filtered[i+1];
+    if(out[cur.label]!=null) continue;
+    let val=compact.slice(cur.end,next?next.start:cur.end+180).trim();
+    val=val.replace(/^[\s:·•|–—-]+/,'').trim();
+    if(val) out[cur.label]=val.slice(0,180).trim();
+  }
+  return out;
+}
+function firstMetric(m,...names){
+  for(const n of names){
+    const v=m?.[n];
+    if(v!=null&&String(v).trim()!==''&&String(v).trim().toLowerCase()!=='n/a'&&String(v).trim()!=='-')return v;
+  }
+  return null;
+}
+function numFromText(v){
+  if(v==null)return null;
+  const s=String(v).replace(/,/g,'');
+  if(/^\s*(n\/a|-|—)\s*$/i.test(s))return null;
+  const m=s.match(/-?\$?\s*([0-9]+(?:\.[0-9]+)?)/);
+  if(!m)return null;
+  const n=parseFloat(m[0].replace(/[$\s]/g,''));
+  return isFinite(n)?n:null;
+}
+function pctFromText(v){
+  if(v==null)return null;
+  const s=String(v).replace(/,/g,'');
+  if(/^\s*(n\/a|-|—)\s*$/i.test(s))return null;
+  const pm=s.match(/(-?[0-9]+(?:\.[0-9]+)?)\s*%/);
+  if(pm){const n=parseFloat(pm[1]);return isFinite(n)?n/100:null}
+  const n=numFromText(s);
+  if(n==null)return null;
+  return Math.abs(n)>1?n/100:n;
+}
+function bigFromText(v){
+  if(v==null)return null;
+  const s=String(v).replace(/,/g,'');
+  if(/^\s*(n\/a|-|—)\s*$/i.test(s))return null;
+  const m=s.match(/-?\$?\s*([0-9]+(?:\.[0-9]+)?)\s*(trillion|billion|million|thousand|T|B|M|K)?/i);
+  if(!m)return null;
+  const n=parseFloat(m[1]);
+  if(!isFinite(n))return null;
+  const u=(m[2]||'').toLowerCase();
+  const mult=u==='t'||u==='trillion'?1e12:u==='b'||u==='billion'?1e9:u==='m'||u==='million'?1e6:u==='k'||u==='thousand'?1e3:1;
+  return n*mult;
+}
 function parseFinvizHtml(html){
-  let doc;
-  try{doc=new DOMParser().parseFromString(html,'text/html')}catch(_){return null}
-  const lbls=Array.from(doc.querySelectorAll('td.snapshot-td2-cp'));
-  const vals=Array.from(doc.querySelectorAll('td.snapshot-td2'));
-  if(!lbls.length) return null;
   const m={};
-  lbls.forEach((el,i)=>{const k=el.textContent.trim();const v=vals[i]?.textContent.trim()||'';if(k)m[k]=v});
-  const num=v=>{if(!v||v==='-')return null;const n=parseFloat(v.replace(/,/g,''));return isFinite(n)?n:null};
-  const pct=v=>{if(!v||v==='-')return null;const n=parseFloat(v.replace('%','').replace(/,/g,''));return isFinite(n)?n/100:null};
-  const mcap=v=>{if(!v||v==='-')return null;const u=v.toUpperCase();const mult=u.endsWith('T')?1e12:u.endsWith('B')?1e9:u.endsWith('M')?1e6:1;const n=parseFloat(v.replace(/[TBMK]/gi,'').replace(/,/g,''));return isFinite(n)?n*mult:null};
+  try{
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const lbls=Array.from(doc.querySelectorAll('td.snapshot-td2-cp, td[class*="snapshot"]'));
+    const vals=Array.from(doc.querySelectorAll('td.snapshot-td2'));
+    lbls.forEach((el,i)=>{const k=el.textContent.trim();const v=vals[i]?.textContent.trim()||'';if(k&&!m[k])m[k]=v});
+  }catch(_){}
+  const blocks=metricBlocksFromText(htmlToPlainText(html));
+  for(const [k,v] of Object.entries(blocks)){if(!m[k])m[k]=v}
+  const debt=numFromText(firstMetric(m,'Debt/Eq','LT Debt/Eq'));
   return{
-    pe:        num(m['P/E']),
-    fpe:       num(m['Forward P/E']),
-    ps:        num(m['P/S']),
-    pb:        num(m['P/B']),
-    divY:      pct(m['Dividend %']),
-    roe:       pct(m['ROE']),
-    roa:       pct(m['ROA']),
-    grossM:    pct(m['Gross Margin']),
-    opMargin:  pct(m['Oper. Margin']),
-    profitM:   pct(m['Profit Margin']),
-    // Finviz Debt/Eq는 비율(1.49)로 표기 → 코드 내부가 %기준(149)이므로 ×100
-    debtEq:    num(m['Debt/Eq'])!=null ? num(m['Debt/Eq'])*100 : null,
-    currRatio: num(m['Current Ratio']),
-    mcap:      mcap(m['Market Cap']),
-    earnGrowth:pct(m['EPS this Y']),
-    revGrowth: pct(m['Sales Q/Q']),
-    beta:      num(m['Beta'])
+    pe:        numFromText(firstMetric(m,'P/E')),
+    fpe:       numFromText(firstMetric(m,'Forward P/E')),
+    peg:       numFromText(firstMetric(m,'PEG')),
+    ps:        numFromText(firstMetric(m,'P/S')),
+    pb:        numFromText(firstMetric(m,'P/B')),
+    divY:      pctFromText(firstMetric(m,'Dividend TTM','Dividend Est.','Dividend %','Dividend Yield')),
+    roe:       pctFromText(firstMetric(m,'ROE')),
+    roa:       pctFromText(firstMetric(m,'ROA')),
+    grossM:    pctFromText(firstMetric(m,'Gross Margin')),
+    opMargin:  pctFromText(firstMetric(m,'Oper. Margin','Operating Margin')),
+    profitM:   pctFromText(firstMetric(m,'Profit Margin')),
+    // Finviz Debt/Eq는 0.17 같은 배율 표기 → 내부 표시는 17(%)로 통일
+    debtEq:    debt!=null?debt*100:null,
+    currRatio: numFromText(firstMetric(m,'Current Ratio')),
+    mcap:      bigFromText(firstMetric(m,'Market Cap')),
+    earnGrowth:pctFromText(firstMetric(m,'EPS Y/Y TTM','EPS Q/Q','EPS this Y','EPS next 5Y')),
+    revGrowth: pctFromText(firstMetric(m,'Sales Q/Q','Sales Y/Y TTM')),
+    beta:      numFromText(firstMetric(m,'Beta'))
+  };
+}
+function parseStockAnalysisHtml(html){
+  const m=metricBlocksFromText(htmlToPlainText(html));
+  const debt=numFromText(firstMetric(m,'Debt / Equity'));
+  return{
+    pe:        numFromText(firstMetric(m,'PE Ratio')),
+    fpe:       numFromText(firstMetric(m,'Forward PE')),
+    peg:       numFromText(firstMetric(m,'PEG Ratio')),
+    ps:        numFromText(firstMetric(m,'PS Ratio')),
+    pb:        numFromText(firstMetric(m,'PB Ratio')),
+    divY:      pctFromText(firstMetric(m,'Dividend Yield')),
+    roe:       pctFromText(firstMetric(m,'Return on Equity (ROE)')),
+    roa:       pctFromText(firstMetric(m,'Return on Assets (ROA)')),
+    grossM:    pctFromText(firstMetric(m,'Gross Margin')),
+    opMargin:  pctFromText(firstMetric(m,'Operating Margin')),
+    profitM:   pctFromText(firstMetric(m,'Profit Margin')),
+    debtEq:    debt!=null?debt*100:null,
+    currRatio: numFromText(firstMetric(m,'Current Ratio')),
+    mcap:      bigFromText(firstMetric(m,'Market Cap')),
+    earnGrowth:pctFromText(firstMetric(m,'EPS Growth Forecast (5Y)')),
+    revGrowth: pctFromText(firstMetric(m,'Revenue Growth Forecast (5Y)')),
+    beta:      numFromText(firstMetric(m,'Beta (5Y)'))
   };
 }
 
@@ -377,60 +523,75 @@ async function loadFundamental(ticker){
   };
   let r, usedFallback=false;
   try{r=await getQuoteSummary(ticker)}catch(_){r=await fallbackFundamental();usedFallback=true}
-  // Finviz로 빠진 마진·ROE·부채 등 보완 (실패해도 무시)
-  const fvz=await getFinvizData(ticker);
-  const fv=(a,b)=>a!=null?a:b;  // Yahoo 우선, null이면 Finviz
+  // Yahoo에서 빠진 값은 Finviz + StockAnalysis로 보완. 둘 다 실패하면 TSM은 최후 스냅샷 사용.
+  const [fvz,sa]=await Promise.all([getFinvizData(ticker),getStockAnalysisData(ticker)]);
+  const known=getLastKnownFundamental(ticker);
+  let knownUsed=false;
   try{
     const sd=r.summaryDetail||{}, ks=r.defaultKeyStatistics||{}, fd=r.financialData||{}, ap=r.assetProfile||{}, pr=r.price||{}, qt=r.quoteType||{};
     const v=o=>o&&o.raw!=null?o.raw:null;
+    const pickNum=(key,...vals)=>{
+      for(const x of vals){if(x!=null&&isFinite(x))return x}
+      if(known&&known[key]!=null&&isFinite(known[key])){knownUsed=true;return known[key]}
+      return null;
+    };
 
-    const name=pr.longName||pr.shortName||qt.shortName||ticker;
-    const sector=ap.sector||(qt.quoteType==='ETF'?'ETF':'—');
-    const industry=ap.industry||'—';
-    const country=ap.country||'';
+    const name=pr.longName||pr.shortName||qt.shortName||known?.name||ticker;
+    const sector=ap.sector||known?.sector||(qt.quoteType==='ETF'?'ETF':'—');
+    const industry=ap.industry||known?.industry||'—';
+    const country=ap.country||known?.country||'';
     const employees=ap.fullTimeEmployees;
-    const mcap=fv(v(sd.marketCap)||v(pr.marketCap), fvz?.mcap);
-    const pe=fv(v(sd.trailingPE)||v(ks.trailingPE), fvz?.pe);
-    const fpe=fv(v(sd.forwardPE)||v(ks.forwardPE), fvz?.fpe);
-    const peg=v(ks.pegRatio);
-    const pb=fv(v(ks.priceToBook), fvz?.pb);
-    const ps=fv(v(sd.priceToSalesTrailing12Months), fvz?.ps);
-    const divY=fv(v(sd.dividendYield), fvz?.divY);
-    const roe=fv(v(fd.returnOnEquity), fvz?.roe);
-    const roa=fv(v(fd.returnOnAssets), fvz?.roa);
-    const margin=fv(v(fd.profitMargins)||v(ks.profitMargins), fvz?.profitM);
-    const opMargin=fv(v(fd.operatingMargins), fvz?.opMargin);
-    const revGrowth=fv(v(fd.revenueGrowth), fvz?.revGrowth);
-    const earnGrowth=fv(v(fd.earningsGrowth)||v(fd.earningsQuarterlyGrowth), fvz?.earnGrowth);
-    const debtEq=fv(v(fd.debtToEquity), fvz?.debtEq);
-    const currentRatio=fv(v(fd.currentRatio), fvz?.currRatio);
-    const beta=fv(v(sd.beta)||v(ks.beta), fvz?.beta);
+    const mcap=pickNum('mcap',v(sd.marketCap),v(pr.marketCap),fvz?.mcap,sa?.mcap);
+    const pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),fvz?.pe,sa?.pe);
+    const fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),fvz?.fpe,sa?.fpe);
+    const pb=pickNum('pb',v(ks.priceToBook),fvz?.pb,sa?.pb);
+    const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),fvz?.ps,sa?.ps);
+    const divY=pickNum('divY',v(sd.dividendYield),fvz?.divY,sa?.divY);
+    const roe=pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
+    const roa=pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa);
+    const margin=pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM);
+    const opMargin=pickNum('opMargin',v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin);
+    const revGrowth=pickNum('revGrowth',v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth);
+    const earnGrowth=pickNum('earnGrowth',v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth);
+    const debtEq=pickNum('debtEq',v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq);
+    const currentRatio=pickNum('currRatio',v(fd.currentRatio),fvz?.currRatio,sa?.currRatio);
+    const beta=pickNum('beta',v(sd.beta),v(ks.beta),fvz?.beta,sa?.beta);
+    let peg=pickNum('peg',v(ks.pegRatio),fvz?.peg,sa?.peg);
+    let pegCalculated=false;
+    if((peg==null||!isFinite(peg))&&pe!=null&&earnGrowth!=null&&earnGrowth>0){peg=pe/(earnGrowth*100);pegCalculated=true}
+    const sourceParts=[];
+    if(!usedFallback)sourceParts.push('Yahoo Finance');
+    if(fvz)sourceParts.push('Finviz');
+    if(sa)sourceParts.push('StockAnalysis');
+    if(knownUsed&&known)sourceParts.push(`${known.source}(${known.asOf})`);
+    const sourceNote=sourceParts.length?sourceParts.join(' + '):'공개 가격/차트 데이터';
 
-    // scoring (0~100) — adapt for ETF / growth sector
+    // scoring (0~100) — 값이 안 들어온 항목 자체를 감점하지 않고, 확보된 항목 기준으로 정규화
     const isETF=qt.quoteType==='ETF';
     const growthSectors=['Technology','Communication Services','Consumer Cyclical','Healthcare'];
-    const isGrowth=growthSectors.some(s=>sector.includes(s));
+    const isGrowth=growthSectors.some(s=>String(sector||'').includes(s));
     const peGood=isGrowth?38:22, peBad=isGrowth?60:38;
-    let score=0, items=[];
-    const add=(val,pts,label)=>{if(val==null||!isFinite(val))return;score+=pts;items.push({label,pts})};
+    let rawScore=0, maxScore=0, items=[];
+    const add=(val,maxPts,pts,label)=>{if(val==null||!isFinite(val))return;rawScore+=pts;maxScore+=maxPts;items.push({label,pts,maxPts})};
 
     if(!isETF){
-      add(pe, pe>0&&pe<peGood?10:pe>0&&pe<peBad?3:pe>0?-8:0, 'P/E');
-      add(roe, roe>0.20?15:roe>0.10?8:roe>=0?2:-12, 'ROE');
-      add(margin, margin>0.20?12:margin>0.05?6:margin>=0?1:-12, '순이익률');
-      add(revGrowth, revGrowth>0.15?12:revGrowth>0?5:-10, '매출 성장');
-      add(earnGrowth, earnGrowth>0.15?10:earnGrowth>0?4:-8, '이익 성장');
-      add(debtEq, debtEq<50?6:debtEq<150?2:-8, '부채비율');
-      add(currentRatio, currentRatio>1.5?5:currentRatio>1?2:-5, '유동비율');
+      add(pe,10, pe>0&&pe<peGood?10:pe>0&&pe<peBad?4:pe>0?-4:-8, 'P/E');
+      add(peg,8, peg>0&&peg<1?8:peg>0&&peg<2?4:peg>0?-3:0, 'PEG');
+      add(roe,15, roe>0.20?15:roe>0.10?8:roe>=0?2:-12, 'ROE');
+      add(margin,12, margin>0.20?12:margin>0.05?6:margin>=0?1:-12, '순이익률');
+      add(revGrowth,12, revGrowth>0.15?12:revGrowth>0?5:-10, '매출 성장');
+      add(earnGrowth,10, earnGrowth>0.15?10:earnGrowth>0?4:-8, '이익 성장');
+      add(debtEq,6, debtEq<50?6:debtEq<150?2:-8, '부채비율');
+      add(currentRatio,5, currentRatio>1.5?5:currentRatio>1?2:-5, '유동비율');
     }else{
-      add(1,10,'ETF — 분산 투자 특성');
-      add(divY, divY>0.02?5:1,'배당');
+      add(1,10,10,'ETF — 분산 투자 특성');
+      add(divY,5,divY>0.02?5:1,'배당');
     }
-    score=Math.max(0,Math.min(100,Math.round(score)));
+    const score=maxScore?Math.max(0,Math.min(100,Math.round((rawScore/maxScore)*100))):50;
     let grade,gColor;
-    if(score>=60){grade='우수';gColor='var(--good)'}
-    else if(score>=40){grade='양호';gColor='var(--primary)'}
-    else if(score>=20){grade='보통';gColor='var(--neutral)'}
+    if(score>=70){grade='우수';gColor='var(--good)'}
+    else if(score>=55){grade='양호';gColor='var(--primary)'}
+    else if(score>=40){grade='보통';gColor='var(--neutral)'}
     else{grade='주의';gColor='var(--bad)'}
 
     const tagList=[];
@@ -442,7 +603,7 @@ async function loadFundamental(ticker){
     const cards=[
       {t:'시가총액',m:fmtBig(mcap),d:'기업 규모'},
       {t:'P/E (TTM)',m:pe!=null?fmtNum(pe):'—',d:fpe!=null?'Forward '+fmtNum(fpe):'주가/이익 비율'},
-      {t:'PEG',m:peg!=null?fmtNum(peg):'—',d:'성장 대비 밸류'},
+      {t:'PEG',m:peg!=null?fmtNum(peg):'—',d:pegCalculated?'이익 성장률 기반 계산값':'성장 대비 밸류'},
       {t:'P/B',m:pb!=null?fmtNum(pb):'—',d:'주가/순자산'},
       {t:'P/S',m:ps!=null?fmtNum(ps):'—',d:'주가/매출'},
       {t:'배당수익률',m:divY!=null?(divY*100).toFixed(2)+'%':'—',d:'연간 배당'},
@@ -502,7 +663,7 @@ async function loadFundamental(ticker){
         <div class="bar-list">
           ${bars.map(b=>`<div class="bar-row"><div class="bar-label">${b.l}</div><div class="bar-track"><div class="bar-fill ${b.cls(b.v)}" style="width:${b.scale(b.v)}%"></div></div><div class="bar-val">${b.fmt(b.v)}</div></div>`).join('')}
         </div>
-        <div class="mini-note">※ ${usedFallback?'상세 펀더멘털이 제한되어 공개 quote/차트 데이터로 대체 계산했습니다.':'Yahoo Finance 공개 엔드포인트(CORS 프록시 경유)로 가져옵니다.'}${fvz?' · 일부 항목은 Finviz에서 보완했습니다.':''} ETF/ADR은 일부 항목이 비어 있을 수 있습니다.</div>
+        <div class="mini-note">※ 데이터 소스: ${sourceNote}. ${usedFallback?'Yahoo 상세 API가 제한되어 보강 소스를 우선 사용했습니다.':'Yahoo 상세 API를 우선 사용했습니다.'}${knownUsed&&known?' · 일부 값은 최후 대체 스냅샷입니다.':''} ETF/ADR은 소스별 산식 차이로 값이 조금 다를 수 있습니다.</div>
       </div>`:''}
     `;
   }catch(e){
