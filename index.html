@@ -170,7 +170,7 @@ function switchTab(name){
 }
 
 async function getChart(ticker){
-  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=1y&interval=1d`;
+  const url=`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=2y&interval=1d`;
   try{
     const j=await fetchJSON(url);
     const r=j.chart.result[0];
@@ -187,7 +187,7 @@ async function getChart(ticker){
     const sym=ticker.toLowerCase()+'.us';
     const t=await fetchText(`https://stooq.com/q/d/l/?s=${sym}&i=d`);
     const lines=t.trim().split('\n').slice(1);
-    return lines.map(l=>{const p=l.split(',');return{d:new Date(p[0]),c:+p[4],v:+p[5]||0}}).filter(x=>!isNaN(x.c)).slice(-260);
+    return lines.map(l=>{const p=l.split(',');return{d:new Date(p[0]),c:+p[4],v:+p[5]||0}}).filter(x=>!isNaN(x.c)).slice(-520);
   }
 }
 
@@ -295,6 +295,7 @@ async function run(){
   const r1m=closes.length>=22?pct(last,closes[closes.length-22]):null;
   const r3m=closes.length>=66?pct(last,closes[closes.length-66]):null;
   const r6m=closes.length>=132?pct(last,closes[closes.length-132]):null;
+  const r1y=closes.length>=252?pct(last,closes[closes.length-252]):null;
   const volAvg=sma(vols,20);
   const volRatio=volAvg?vols[vols.length-1]/volAvg:null;
 
@@ -312,17 +313,18 @@ async function run(){
   ].map(m=>`<div class="metric"><div class="metric-label">${m[0]}</div><div class="metric-value">${m[1]}</div><div class="metric-note">${m[2]}</div></div>`).join('');
 
   const sigs=[];
-  const sig=(ok,bad,txt,val)=>sigs.push({ok,bad,txt,val});
-  sig(ma50&&last>ma50,ma50&&last<ma50,'50일선 위', ma50?'$'+fmtNum(ma50):'—');
-  sig(ma200&&last>ma200,ma200&&last<ma200,'200일선 위', ma200?'$'+fmtNum(ma200):'—');
-  sig(ma50&&ma200&&ma50>ma200,ma50&&ma200&&ma50<ma200,'골든크로스(50>200)','');
-  sig(r&&r>50&&r<70,r&&(r>=70||r<40),'RSI 건강 구간(50~70)',r?r.toFixed(1):'—');
-  sig(r1m!=null&&r1m>0,r1m!=null&&r1m<0,'1개월 수익률 양호',fmtPct(r1m));
-  sig(r3m!=null&&r3m>5,r3m!=null&&r3m<0,'3개월 수익률 강세',fmtPct(r3m));
-  sig(r6m!=null&&r6m>10,r6m!=null&&r6m<0,'6개월 수익률 강세',fmtPct(r6m));
-  sig(volRatio&&volRatio>1.2,volRatio&&volRatio<0.7,'거래량 활발',volRatio?volRatio.toFixed(2)+'x':'—');
-  sig(rsSpy!=null&&rsSpy>0,rsSpy!=null&&rsSpy<0,'SPY 대비 강세',fmtPct(rsSpy));
-  sig(rsQqq!=null&&rsQqq>0,rsQqq!=null&&rsQqq<0,'QQQ 대비 강세',fmtPct(rsQqq));
+  const sig=(ok,bad,txt,val,w=1)=>sigs.push({ok,bad,txt,val,w});
+  sig(ma200&&last>ma200,ma200&&last<ma200,'200일선 위',ma200?'$'+fmtNum(ma200):'—',3);
+  sig(ma50&&ma200&&ma50>ma200,ma50&&ma200&&ma50<ma200,'골든크로스(50>200)','',3);
+  sig(ma50&&last>ma50,ma50&&last<ma50,'50일선 위',ma50?'$'+fmtNum(ma50):'—',2);
+  sig(r!=null&&r>=50&&r<70,r!=null&&r<50,'RSI 구간(50~70)',r!=null?r.toFixed(1):'—',2);
+  sig(r3m!=null&&r3m>5,r3m!=null&&r3m<0,'3개월 수익률 강세',fmtPct(r3m),2);
+  sig(r6m!=null&&r6m>10,r6m!=null&&r6m<0,'6개월 수익률 강세',fmtPct(r6m),2);
+  sig(r1y!=null&&r1y>20,r1y!=null&&r1y<0,'1년 수익률 강세',fmtPct(r1y),2);
+  sig(rsSpy!=null&&rsSpy>0,rsSpy!=null&&rsSpy<0,'SPY 대비 강세',fmtPct(rsSpy),2);
+  sig(rsQqq!=null&&rsQqq>0,rsQqq!=null&&rsQqq<0,'QQQ 대비 강세',fmtPct(rsQqq),2);
+  sig(r1m!=null&&r1m>0,r1m!=null&&r1m<0,'1개월 수익률 양호',fmtPct(r1m),1);
+  sig(volRatio!=null&&volRatio>1.2,volRatio!=null&&volRatio<0.7,'거래량 활발',volRatio?volRatio.toFixed(2)+'x':'—',1);
 
   document.getElementById('signals').innerHTML=sigs.map(s=>{
     const cls=s.ok?'signal-good':s.bad?'signal-bad':'signal-neutral';
@@ -330,13 +332,14 @@ async function run(){
     return `<div class="signal ${cls}"><span>${ic} ${s.txt}</span><strong>${s.val}</strong></div>`;
   }).join('');
 
-  const score=sigs.filter(s=>s.ok).length;
-  const total=sigs.length;
+  const totalW=sigs.reduce((s,x)=>s+x.w,0);
+  const earnedW=sigs.filter(s=>s.ok).reduce((s,x)=>s+x.w,0);
+  const ratio=totalW>0?earnedW/totalW:0;
   let verdict,bg;
-  if(score>=total*0.7){verdict='🚀 강한 모멘텀';bg='var(--good-bg)';}
-  else if(score>=total*0.4){verdict='⚖️ 혼조';bg='var(--neutral-bg)';}
+  if(ratio>=0.65){verdict='🚀 강한 모멘텀';bg='var(--good-bg)';}
+  else if(ratio>=0.40){verdict='⚖️ 혼조';bg='var(--neutral-bg)';}
   else{verdict='🔻 약세';bg='var(--bad-bg)';}
-  document.getElementById('summary').innerHTML=`<div class="summary" style="background:${bg}">${verdict}<div class="summary-sub">${score} / ${total} 긍정 신호</div></div>`;
+  document.getElementById('summary').innerHTML=`<div class="summary" style="background:${bg}">${verdict}<div class="summary-sub">가중 점수 ${earnedW} / ${totalW}</div></div>`;
 
   // Fundamental
   await loadFundamental(ticker);
@@ -403,28 +406,31 @@ async function loadFundamental(ticker){
     const currentRatio=fv(v(fd.currentRatio), fvz?.currRatio);
     const beta=fv(v(sd.beta)||v(ks.beta), fvz?.beta);
 
-    // scoring (0~100) — adapt for ETF
+    // scoring (0~100) — adapt for ETF / growth sector
     const isETF=qt.quoteType==='ETF';
-    let score=usedFallback&&r._fallback?Math.round(r._fallback.pseudoScore):50, items=[];
-    const add=(cond,pts,label)=>{if(cond===null||cond===undefined)return;score+=pts;items.push({label,pts})};
+    const growthSectors=['Technology','Communication Services','Consumer Cyclical','Healthcare'];
+    const isGrowth=growthSectors.some(s=>sector.includes(s));
+    const peGood=isGrowth?38:22, peBad=isGrowth?60:38;
+    let score=0, items=[];
+    const add=(val,pts,label)=>{if(val==null||!isFinite(val))return;score+=pts;items.push({label,pts})};
 
     if(!isETF){
-      add(pe!=null&&pe>0&&pe<25?true:null, pe!=null&&pe>0&&pe<25?8:(pe!=null&&pe>40?-8:0), 'P/E');
-      add(roe!=null?true:null, roe!=null?(roe>0.20?12:roe>0.10?6:roe<0?-10:0):0, 'ROE');
-      add(margin!=null?true:null, margin!=null?(margin>0.20?10:margin>0.05?5:margin<0?-10:0):0, '순이익률');
-      add(revGrowth!=null?true:null, revGrowth!=null?(revGrowth>0.15?10:revGrowth>0?4:-8):0, '매출 성장');
-      add(earnGrowth!=null?true:null, earnGrowth!=null?(earnGrowth>0.15?8:earnGrowth>0?3:-6):0, '이익 성장');
-      add(debtEq!=null?true:null, debtEq!=null?(debtEq<50?5:debtEq<150?0:-6):0, '부채비율');
-      add(currentRatio!=null?true:null, currentRatio!=null?(currentRatio>1.5?4:currentRatio>1?1:-4):0, '유동비율');
+      add(pe, pe>0&&pe<peGood?10:pe>0&&pe<peBad?3:pe>0?-8:0, 'P/E');
+      add(roe, roe>0.20?15:roe>0.10?8:roe>=0?2:-12, 'ROE');
+      add(margin, margin>0.20?12:margin>0.05?6:margin>=0?1:-12, '순이익률');
+      add(revGrowth, revGrowth>0.15?12:revGrowth>0?5:-10, '매출 성장');
+      add(earnGrowth, earnGrowth>0.15?10:earnGrowth>0?4:-8, '이익 성장');
+      add(debtEq, debtEq<50?6:debtEq<150?2:-8, '부채비율');
+      add(currentRatio, currentRatio>1.5?5:currentRatio>1?2:-5, '유동비율');
     }else{
-      add(true,10,'ETF — 분산 투자 특성');
-      add(divY!=null?true:null, divY!=null?(divY>0.02?5:0):0,'배당');
+      add(1,10,'ETF — 분산 투자 특성');
+      add(divY, divY>0.02?5:1,'배당');
     }
     score=Math.max(0,Math.min(100,Math.round(score)));
     let grade,gColor;
-    if(score>=75){grade='우수';gColor='var(--good)'}
-    else if(score>=55){grade='양호';gColor='var(--primary)'}
-    else if(score>=40){grade='보통';gColor='var(--neutral)'}
+    if(score>=60){grade='우수';gColor='var(--good)'}
+    else if(score>=40){grade='양호';gColor='var(--primary)'}
+    else if(score>=20){grade='보통';gColor='var(--neutral)'}
     else{grade='주의';gColor='var(--bad)'}
 
     const tagList=[];
