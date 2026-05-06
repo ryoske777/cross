@@ -524,7 +524,7 @@ async function loadFundamental(ticker){
   let r, usedFallback=false;
   try{r=await getQuoteSummary(ticker)}catch(_){r=await fallbackFundamental();usedFallback=true}
   // Yahoo에서 빠진 값은 Finviz + StockAnalysis로 보완. 둘 다 실패하면 TSM은 최후 스냅샷 사용.
-  const [fvz,sa]=await Promise.all([getFinvizData(ticker),getStockAnalysisData(ticker)]);
+  const [fvz,sa,qteRaw]=await Promise.all([getFinvizData(ticker),getStockAnalysisData(ticker),getQuote(ticker).catch(()=>null)]);
   const known=getLastKnownFundamental(ticker);
   let knownUsed=false;
   try{
@@ -541,7 +541,10 @@ async function loadFundamental(ticker){
     const industry=ap.industry||known?.industry||'—';
     const country=ap.country||known?.country||'';
     const employees=ap.fullTimeEmployees;
-    const mcap=pickNum('mcap',v(sd.marketCap),v(pr.marketCap),fvz?.mcap,sa?.mcap);
+    // 주식 수 × 현재가로 시가총액 직접 계산 (모든 API 소스가 빠졌을 때 최후 보루)
+    const sharesOut=v(ks.sharesOutstanding)||v(ks.impliedSharesOutstanding);
+    const mcapCalc=sharesOut&&qteRaw?.regularMarketPrice?sharesOut*qteRaw.regularMarketPrice:null;
+    const mcap=pickNum('mcap',v(sd.marketCap),v(pr.marketCap),fvz?.mcap,sa?.mcap,qteRaw?.marketCap,mcapCalc);
     const pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),fvz?.pe,sa?.pe);
     const fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),fvz?.fpe,sa?.fpe);
     const pb=pickNum('pb',v(ks.priceToBook),fvz?.pb,sa?.pb);
