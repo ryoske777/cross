@@ -114,6 +114,15 @@ button.primary:hover{background:var(--primary-hover)}
 <div id="metrics" class="metrics"></div>
 </div>
 <div class="card">
+<div class="section-title">주가 차트</div>
+<div class="legend">
+<span class="p">주가</span>
+<span class="m50">MA 50</span>
+<span class="m200">MA 200</span>
+</div>
+<canvas id="price-chart" style="width:100%;display:block;border-radius:6px"></canvas>
+</div>
+<div class="card">
 <div class="section-title">종합 신호</div>
 <div id="signals"></div>
 <div id="summary"></div>
@@ -403,6 +412,36 @@ function parseStockAnalysisHtml(html){
   };
 }
 
+function rollingMA(arr,n){return arr.map((_,i)=>i<n-1?null:arr.slice(i-n+1,i+1).reduce((a,b)=>a+b,0)/n)}
+function drawPriceChart(data){
+  const canvas=document.getElementById('price-chart');
+  if(!canvas)return;
+  const W=canvas.width=canvas.parentElement.clientWidth;
+  const H=canvas.height=220;
+  const ctx=canvas.getContext('2d');
+  ctx.clearRect(0,0,W,H);
+  const closes=data.map(x=>x.c);
+  const ma50s=rollingMA(closes,50);
+  const ma200s=rollingMA(closes,200);
+  const n=closes.length;
+  if(n<2)return;
+  const allVals=[...closes,...ma50s.filter(v=>v!=null),...ma200s.filter(v=>v!=null)];
+  const minP=Math.min(...allVals),maxP=Math.max(...allVals);
+  const range=maxP-minP||1;
+  const PAD=12;
+  const xOf=i=>PAD+(i/(n-1))*(W-2*PAD);
+  const yOf=v=>PAD+(1-(v-minP)/range)*(H-2*PAD);
+  const st=getComputedStyle(document.documentElement);
+  const drawLine=(vals,color,dash=[])=>{
+    ctx.strokeStyle=color;ctx.lineWidth=1.5;ctx.setLineDash(dash);
+    ctx.beginPath();let started=false;
+    vals.forEach((v,i)=>{if(v==null)return;if(!started){ctx.moveTo(xOf(i),yOf(v));started=true;}else ctx.lineTo(xOf(i),yOf(v));});
+    ctx.stroke();ctx.setLineDash([]);
+  };
+  drawLine(closes,st.getPropertyValue('--price').trim());
+  drawLine(ma50s,st.getPropertyValue('--ma50').trim());
+  drawLine(ma200s,st.getPropertyValue('--ma200').trim(),[5,4]);
+}
 function sma(arr,n){if(arr.length<n)return null;return arr.slice(-n).reduce((a,b)=>a+b,0)/n}
 function rsi(closes,n=14){
   if(closes.length<n+1)return null;
@@ -435,6 +474,7 @@ async function run(){
   // Technical
   const closes=chart.map(x=>x.c);
   const vols=chart.map(x=>x.v);
+  drawPriceChart(chart);
   const last=closes[closes.length-1];
   const ma50=sma(closes,50),ma200=sma(closes,200);
   const r=rsi(closes);
