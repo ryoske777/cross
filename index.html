@@ -234,6 +234,12 @@ async function getStockAnalysisData(ticker){
   }catch(_){return null}
 }
 
+// 모든 실시간 소스가 실패할 때 시가총액만 제공하는 최후 근사값 (as of 2026-05)
+const KNOWN_MCAP={
+  NVDA:3.35e12, AAPL:3.1e12, MSFT:3.0e12, AMZN:2.1e12,
+  GOOGL:2.0e12, META:1.4e12, TSLA:1.0e12, TSM:0.9e12
+};
+
 const LAST_KNOWN_FUNDAMENTALS={
   // CORS 프록시가 모두 막힐 때 TSM 화면이 전부 공란이 되는 것을 막는 최후 대체값입니다.
   // 가능하면 Yahoo/Finviz/StockAnalysis 실시간 스크래핑 값이 먼저 사용됩니다.
@@ -544,7 +550,10 @@ async function loadFundamental(ticker){
     // 주식 수 × 현재가로 시가총액 직접 계산 (모든 API 소스가 빠졌을 때 최후 보루)
     const sharesOut=v(ks.sharesOutstanding)||v(ks.impliedSharesOutstanding);
     const mcapCalc=sharesOut&&qteRaw?.regularMarketPrice?sharesOut*qteRaw.regularMarketPrice:null;
-    const mcap=pickNum('mcap',v(sd.marketCap),v(pr.marketCap),fvz?.mcap,sa?.mcap,qteRaw?.marketCap,mcapCalc);
+    let mcap=pickNum('mcap',v(sd.marketCap),v(pr.marketCap),fvz?.mcap,sa?.mcap,qteRaw?.marketCap,mcapCalc);
+    // 모든 실시간 소스 실패 시 근사값으로 대체 (API 완전 차단 환경 대응)
+    let mcapApprox=false;
+    if(mcap==null){const km=KNOWN_MCAP[String(ticker).toUpperCase()];if(km!=null){mcap=km;mcapApprox=true;}}
     const pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),fvz?.pe,sa?.pe);
     const fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),fvz?.fpe,sa?.fpe);
     const pb=pickNum('pb',v(ks.priceToBook),fvz?.pb,sa?.pb);
@@ -604,7 +613,7 @@ async function loadFundamental(ticker){
     if(qt.quoteType)tagList.push(qt.quoteType);
 
     const cards=[
-      {t:'시가총액',m:fmtBig(mcap),d:'기업 규모'},
+      {t:'시가총액',m:fmtBig(mcap)+(mcapApprox?' *':''),d:mcapApprox?'근사값 (API 제한 시 캐시 사용)':'기업 규모'},
       {t:'P/E (TTM)',m:pe!=null?fmtNum(pe):'—',d:fpe!=null?'Forward '+fmtNum(fpe):'주가/이익 비율'},
       {t:'PEG',m:peg!=null?fmtNum(peg):'—',d:pegCalculated?'이익 성장률 기반 계산값':'성장 대비 밸류'},
       {t:'P/B',m:pb!=null?fmtNum(pb):'—',d:'주가/순자산'},
