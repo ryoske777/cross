@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stock Momentum Checker — 주식 이평선 분석기</title>
+    <title>Stock Momentum Checker Pro — 모멘텀 점수 분석기</title>
     <link rel="stylesheet" as="style" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css">
     <style>
         :root {
@@ -15,36 +15,93 @@
             --price: #1a4d8c; --ma50: #d97942; --ma200: #6c6c66;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { font-family: "Pretendard Variable", sans-serif; background: var(--bg); color: var(--text); padding: 24px 16px; min-height: 100vh; line-height: 1.5; }
-        .container { max-width: 720px; margin: 0 auto; }
-        .card { background: var(--surface); border-radius: 12px; padding: 20px; margin-bottom: 14px; border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
+        body {
+            font-family: "Pretendard Variable", -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg); color: var(--text); padding: 24px 16px;
+            min-height: 100vh; line-height: 1.5;
+        }
+        .container { max-width: 840px; margin: 0 auto; }
+        header { margin-bottom: 24px; text-align: center; }
+        h1 { font-size: 26px; letter-spacing: -0.03em; }
+        .subtitle { color: var(--text-secondary); font-size: 13px; margin-top: 6px; }
+        .card {
+            background: var(--surface); border-radius: 12px; padding: 20px; margin-bottom: 14px;
+            border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+        }
         .search-row { display: flex; gap: 10px; }
-        .ticker-input { flex: 1; max-width: 180px; padding: 12px; border-radius: 8px; border: 1.5px solid var(--border); font-size: 16px; font-weight: 600; text-transform: uppercase; outline: none; }
+        .ticker-input {
+            flex: 1; max-width: 190px; padding: 12px; border-radius: 8px;
+            border: 1.5px solid var(--border); font-size: 16px; font-weight: 700;
+            text-transform: uppercase; outline: none;
+        }
         .ticker-input:focus { border-color: var(--primary); }
-        button.primary { background: var(--primary); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 15px; }
+        button.primary {
+            background: var(--primary); color: white; border: none; padding: 12px 24px;
+            border-radius: 8px; cursor: pointer; font-weight: 700; font-size: 15px;
+        }
+        button.primary:hover { background: var(--primary-hover); }
         .quick-buttons { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-        .quick-btn { background: white; border: 1px solid var(--border); padding: 6px 14px; font-size: 13px; border-radius: 6px; cursor: pointer; color: var(--text-secondary); }
-        .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
-        @media (min-width: 480px) { .metrics { grid-template-columns: repeat(4, 1fr); } }
+        .quick-btn {
+            background: white; border: 1px solid var(--border); padding: 6px 14px;
+            font-size: 13px; border-radius: 6px; cursor: pointer; color: var(--text-secondary);
+        }
+        .quick-btn:hover { border-color: var(--primary); color: var(--primary); }
+        .metrics {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+        }
+        @media (min-width: 640px) { .metrics { grid-template-columns: repeat(4, 1fr); } }
         .metric { padding: 16px; background: var(--bg); border-radius: 10px; text-align: center; }
         .metric-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
-        .metric-value { font-size: 18px; font-weight: 800; }
-        .signal { padding: 14px; margin: 8px 0; border-radius: 10px; display: flex; justify-content: space-between; font-size: 14.5px; align-items: center; }
+        .metric-value { font-size: 18px; font-weight: 850; letter-spacing: -0.02em; }
+        .metric-note { font-size: 11px; color: var(--text-tertiary); margin-top: 4px; }
+        .signal {
+            padding: 14px; margin: 8px 0; border-radius: 10px;
+            display: flex; justify-content: space-between; gap: 12px;
+            font-size: 14.5px; align-items: center;
+        }
+        .signal strong { white-space: nowrap; }
         .signal-good { background: var(--good-bg); color: var(--good); }
         .signal-bad { background: var(--bad-bg); color: var(--bad); }
         .signal-neutral { background: var(--neutral-bg); color: var(--neutral); }
-        .summary { margin-top: 16px; padding: 18px; border-radius: 12px; font-weight: 800; text-align: center; font-size: 18px; }
+        .summary {
+            margin-top: 16px; padding: 18px; border-radius: 12px;
+            font-weight: 850; text-align: center; font-size: 19px;
+        }
+        .summary-sub { font-size: 13px; margin-top: 6px; font-weight: 500; opacity: 0.86; }
+        .section-title {
+            font-size: 14px; font-weight: 800; margin-bottom: 10px;
+            color: var(--text-secondary);
+        }
+        .legend {
+            font-size: 12px; color: var(--text-tertiary); margin-bottom: 10px;
+            display: flex; gap: 12px; flex-wrap: wrap;
+        }
+        .legend span::before {
+            content: ""; display: inline-block; width: 16px; height: 3px;
+            margin-right: 6px; vertical-align: middle; border-radius: 10px;
+        }
+        .legend .p::before { background: var(--price); }
+        .legend .m50::before { background: var(--ma50); }
+        .legend .m200::before { background: var(--ma200); border-top: 2px dashed var(--ma200); height: 0; }
         .footer { text-align: center; color: var(--text-tertiary); font-size: 12px; margin-top: 40px; }
-        .loader { width: 20px; height: 20px; border: 3px solid #CCC; border-bottom-color: var(--primary); border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; vertical-align: middle; margin-right: 8px; }
+        .loader {
+            width: 20px; height: 20px; border: 3px solid #CCC; border-bottom-color: var(--primary);
+            border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite;
+            vertical-align: middle; margin-right: 8px;
+        }
+        .small-help {
+            font-size: 12px; color: var(--text-secondary); margin-top: 10px;
+        }
         @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
 <div class="container">
-    <header style="margin-bottom:24px; text-align: center;">
-        <h1 style="font-size: 26px;">📈 모멘텀 신호 체크</h1>
+    <header>
+        <h1>📈 모멘텀 신호 체크 Pro</h1>
+        <div class="subtitle">이평선 + RSI + 거래량 + 기간 수익률 + SPY/QQQ 상대강도</div>
     </header>
-    
+
     <div class="card">
         <div class="search-row">
             <input type="text" id="ticker" class="ticker-input" value="TSM" placeholder="티커 입력">
@@ -55,23 +112,32 @@
             <button class="quick-btn" data-ticker="NVDA">NVDA</button>
             <button class="quick-btn" data-ticker="AAPL">AAPL</button>
             <button class="quick-btn" data-ticker="MSFT">MSFT</button>
+            <button class="quick-btn" data-ticker="AMZN">AMZN</button>
+            <button class="quick-btn" data-ticker="GOOGL">GOOGL</button>
             <button class="quick-btn" data-ticker="QQQ">QQQ</button>
             <button class="quick-btn" data-ticker="SPY">SPY</button>
         </div>
+        <div class="small-help">개인용 추세 필터입니다. 매수/매도 확정 신호가 아니라 후보 종목을 빠르게 걸러보는 용도로 보세요.</div>
     </div>
 
     <div id="status" style="display:none; text-align:center; padding:30px;" class="card"></div>
 
     <div id="results" style="display:none;">
         <div class="card">
+            <div class="section-title">핵심 지표</div>
             <div class="metrics" id="metrics"></div>
         </div>
         <div class="card">
+            <div class="section-title">종합 신호</div>
             <div id="signals"></div>
             <div id="summary"></div>
         </div>
         <div class="card">
-            <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 10px;">최근 6개월 추세 (파랑:가격 / 주황:50일선 / 회색점선:200일선)</div>
+            <div class="legend">
+                <span class="p">가격</span>
+                <span class="m50">50일선</span>
+                <span class="m200">200일선</span>
+            </div>
             <svg id="chart" viewBox="0 0 700 320" style="width:100%; height:auto;"></svg>
         </div>
     </div>
@@ -88,38 +154,40 @@ const resultsDiv = document.getElementById('results');
 const statusDiv = document.getElementById('status');
 
 searchBtn.addEventListener('click', () => analyze(tickerInput.value.trim().toUpperCase()));
+tickerInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') analyze(tickerInput.value.trim().toUpperCase());
+});
 document.querySelectorAll('.quick-btn').forEach(b => b.addEventListener('click', () => analyze(b.dataset.ticker)));
 
 async function analyze(ticker) {
-    if(!ticker) return;
+    if (!ticker) return;
     tickerInput.value = ticker;
     showStatus('<span class="loader"></span> 최신 데이터를 분석 중입니다...', false);
     resultsDiv.style.display = 'none';
 
     try {
-        const data = await fetchStockData(ticker);
-        
-        // 데이터 정렬 및 유효성 검사
-        data.sort((a, b) => a.date.localeCompare(b.date));
-        
-        if (data.length < 200) {
-            throw new Error(`데이터가 부족합니다. (확보된 데이터: ${data.length}일치)`);
+        const mainData = await fetchStockData(ticker);
+        mainData.sort((a, b) => a.date.localeCompare(b.date));
+
+        if (mainData.length < 220) {
+            throw new Error(`데이터가 부족합니다. 최소 220일치가 필요합니다. (확보: ${mainData.length}일치)`);
         }
 
-        const closes = data.map(d => d.close);
-        const ma50 = calculateSMA(closes, 50);
-        const ma200 = calculateSMA(closes, 200);
-        
-        const current = {
-            price: closes[closes.length - 1],
-            ma50: ma50[ma50.length - 1],
-            ma200: ma200[ma200.length - 1],
-            high52: Math.max(...closes.slice(-Math.min(252, closes.length)))
+        showStatus('<span class="loader"></span> SPY/QQQ 상대강도를 함께 계산 중입니다...', false);
+
+        const [spyResult, qqqResult] = await Promise.allSettled([
+            fetchStockData('SPY'),
+            fetchStockData('QQQ')
+        ]);
+
+        const benchmarks = {
+            SPY: spyResult.status === 'fulfilled' ? spyResult.value.sort((a, b) => a.date.localeCompare(b.date)) : null,
+            QQQ: qqqResult.status === 'fulfilled' ? qqqResult.value.sort((a, b) => a.date.localeCompare(b.date)) : null
         };
 
-        if (isNaN(current.ma200)) throw new Error("장기 이동평균선 계산에 실패했습니다.");
+        const analysis = buildAnalysis(ticker, mainData, benchmarks);
 
-        renderUI(current, ma50, ma200, data);
+        renderUI(analysis);
         statusDiv.style.display = 'none';
         resultsDiv.style.display = 'block';
     } catch (err) {
@@ -127,10 +195,262 @@ async function analyze(ticker) {
     }
 }
 
+function buildAnalysis(ticker, data, benchmarks) {
+    const closes = data.map(d => d.close);
+    const volumes = data.map(d => d.volume).filter(v => Number.isFinite(v));
+
+    const ma20 = calculateSMA(closes, 20);
+    const ma50 = calculateSMA(closes, 50);
+    const ma200 = calculateSMA(closes, 200);
+    const rsi14 = calculateRSI(closes, 14);
+
+    const last = data.length - 1;
+    const price = closes[last];
+    const prevPrice = closes[last - 1];
+    const dailyChange = pct(price, prevPrice);
+    const volume = Number.isFinite(data[last].volume) ? data[last].volume : NaN;
+    const avgVol50 = calculateAverage(data.map(d => d.volume).filter(Number.isFinite).slice(-50));
+    const volumeRatio = Number.isFinite(volume) && Number.isFinite(avgVol50) && avgVol50 > 0 ? volume / avgVol50 : NaN;
+
+    const current = {
+        ticker: ticker.toUpperCase(),
+        price,
+        ma20: ma20[last],
+        ma50: ma50[last],
+        ma200: ma200[last],
+        rsi: rsi14[last],
+        volume,
+        avgVol50,
+        volumeRatio,
+        dailyChange,
+        high52: Math.max(...closes.slice(-Math.min(252, closes.length))),
+        low52: Math.min(...closes.slice(-Math.min(252, closes.length))),
+        ret1m: periodReturn(closes, 21),
+        ret3m: periodReturn(closes, 63),
+        ret6m: periodReturn(closes, 126)
+    };
+
+    const relative = buildRelativeStrength(data, benchmarks);
+    const signals = scoreSignals(current, relative);
+
+    return { data, closes, ma50, ma200, current, relative, signals };
+}
+
+function buildRelativeStrength(data, benchmarks) {
+    const out = {};
+    for (const symbol of ['SPY', 'QQQ']) {
+        const benchmark = benchmarks[symbol];
+        if (!benchmark || benchmark.length < 130) {
+            out[symbol] = { ok: false, reason: '벤치마크 데이터 없음' };
+            continue;
+        }
+
+        const aligned = alignByDate(data, benchmark);
+        if (aligned.stock.length < 130) {
+            out[symbol] = { ok: false, reason: '비교 가능한 날짜 부족' };
+            continue;
+        }
+
+        out[symbol] = {
+            ok: true,
+            ret3m: periodReturn(aligned.stock, 63),
+            benchRet3m: periodReturn(aligned.bench, 63),
+            rel3m: periodReturn(aligned.stock, 63) - periodReturn(aligned.bench, 63),
+            ret6m: periodReturn(aligned.stock, 126),
+            benchRet6m: periodReturn(aligned.bench, 126),
+            rel6m: periodReturn(aligned.stock, 126) - periodReturn(aligned.bench, 126)
+        };
+    }
+    return out;
+}
+
+function alignByDate(stockData, benchData) {
+    const benchMap = new Map(benchData.map(d => [d.date, d.close]));
+    const stock = [];
+    const bench = [];
+
+    for (const row of stockData) {
+        const b = benchMap.get(row.date);
+        if (Number.isFinite(row.close) && Number.isFinite(b)) {
+            stock.push(row.close);
+            bench.push(b);
+        }
+    }
+
+    return { stock, bench };
+}
+
+function scoreSignals(cur, relative) {
+    let score = 0;
+    const maxScore = 12;
+    const signals = [];
+
+    const add = (type, title, detail, points) => {
+        score += points;
+        signals.push({ type, title, detail, points });
+    };
+
+    if (cur.price > cur.ma200) add('good', '장기 추세', `현재가가 200일선보다 ${formatPct(cur.price / cur.ma200 - 1)} 높습니다.`, 2);
+    else add('bad', '장기 추세', `현재가가 200일선보다 ${formatPct(1 - cur.price / cur.ma200)} 낮습니다.`, -2);
+
+    if (cur.price > cur.ma50) add('good', '중기 추세', `현재가가 50일선 위에 있습니다.`, 1);
+    else add('bad', '중기 추세', `현재가가 50일선 아래에 있습니다.`, -1);
+
+    if (cur.ma50 > cur.ma200) add('good', '이평선 배열', `50일선이 200일선 위에 있어 상승 추세가 유지됩니다.`, 2);
+    else add('bad', '이평선 배열', `50일선이 200일선 아래에 있어 방어적으로 봐야 합니다.`, -2);
+
+    if (cur.ret3m > 0 && cur.ret6m > 0) add('good', '가격 모멘텀', `3개월 ${formatPct(cur.ret3m)}, 6개월 ${formatPct(cur.ret6m)}입니다.`, 2);
+    else if (cur.ret3m > 0 || cur.ret6m > 0) add('neutral', '가격 모멘텀', `3개월 ${formatPct(cur.ret3m)}, 6개월 ${formatPct(cur.ret6m)}로 혼조입니다.`, 0);
+    else add('bad', '가격 모멘텀', `3개월 ${formatPct(cur.ret3m)}, 6개월 ${formatPct(cur.ret6m)}로 약합니다.`, -1);
+
+    if (cur.rsi >= 45 && cur.rsi <= 70) add('good', 'RSI', `RSI ${cur.rsi.toFixed(1)}로 과열 없이 양호합니다.`, 1);
+    else if (cur.rsi > 70 && cur.rsi <= 80) add('neutral', 'RSI', `RSI ${cur.rsi.toFixed(1)}로 단기 과열 가능성이 있습니다.`, 0);
+    else if (cur.rsi > 80) add('bad', 'RSI', `RSI ${cur.rsi.toFixed(1)}로 과열이 강합니다. 추격매수는 조심하세요.`, -1);
+    else if (cur.rsi >= 35) add('neutral', 'RSI', `RSI ${cur.rsi.toFixed(1)}로 힘이 약해지는 구간입니다.`, 0);
+    else add('bad', 'RSI', `RSI ${cur.rsi.toFixed(1)}로 약세/침체 구간입니다.`, -1);
+
+    if (Number.isFinite(cur.volumeRatio)) {
+        if (cur.dailyChange > 0 && cur.volumeRatio >= 1.2) {
+            add('good', '거래량', `오늘 거래량이 50일 평균의 ${cur.volumeRatio.toFixed(1)}배이고 가격도 상승했습니다.`, 1);
+        } else if (cur.dailyChange < 0 && cur.volumeRatio >= 1.5) {
+            add('bad', '거래량', `하락일에 거래량이 50일 평균의 ${cur.volumeRatio.toFixed(1)}배입니다.`, -1);
+        } else {
+            add('neutral', '거래량', `오늘 거래량은 50일 평균의 ${cur.volumeRatio.toFixed(1)}배입니다.`, 0);
+        }
+    } else {
+        add('neutral', '거래량', '거래량 데이터가 없어 수급 신호는 제외했습니다.', 0);
+    }
+
+    const spy = relative.SPY;
+    const qqq = relative.QQQ;
+    let relPoints = 0;
+    let relDetails = [];
+
+    if (spy?.ok) {
+        if (spy.rel3m > 0) relPoints += 1;
+        relDetails.push(`SPY 대비 3개월 ${formatSignedPct(spy.rel3m)}`);
+    }
+    if (qqq?.ok) {
+        if (qqq.rel3m > 0) relPoints += 1;
+        relDetails.push(`QQQ 대비 3개월 ${formatSignedPct(qqq.rel3m)}`);
+    }
+
+    if (relDetails.length === 0) {
+        add('neutral', '상대강도', 'SPY/QQQ 데이터를 가져오지 못해 상대강도는 제외했습니다.', 0);
+    } else if (relPoints === relDetails.length) {
+        add('good', '상대강도', relDetails.join(' / '), Math.min(2, relPoints));
+    } else if (relPoints > 0) {
+        add('neutral', '상대강도', relDetails.join(' / '), relPoints);
+    } else {
+        add('bad', '상대강도', relDetails.join(' / '), -1);
+    }
+
+    const distFromHigh = cur.price / cur.high52;
+    if (distFromHigh >= 0.9) add('good', '52주 고점 근접도', `52주 고점의 ${(distFromHigh * 100).toFixed(1)}% 수준입니다.`, 1);
+    else if (distFromHigh >= 0.75) add('neutral', '52주 고점 근접도', `52주 고점의 ${(distFromHigh * 100).toFixed(1)}% 수준입니다.`, 0);
+    else add('bad', '52주 고점 근접도', `52주 고점의 ${(distFromHigh * 100).toFixed(1)}% 수준으로 회복이 약합니다.`, -1);
+
+    return { score, maxScore, signals };
+}
+
+function renderUI(analysis) {
+    const { data, current: cur, relative, signals, ma50, ma200 } = analysis;
+
+    const spyText = relative.SPY?.ok ? formatSignedPct(relative.SPY.rel3m) : 'N/A';
+    const qqqText = relative.QQQ?.ok ? formatSignedPct(relative.QQQ.rel3m) : 'N/A';
+
+    document.getElementById('metrics').innerHTML = `
+        <div class="metric">
+            <div class="metric-label">현재가</div>
+            <div class="metric-value">$${cur.price.toFixed(2)}</div>
+            <div class="metric-note">일간 ${formatSignedPct(cur.dailyChange)}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">50일 / 200일</div>
+            <div class="metric-value">$${cur.ma50.toFixed(1)} / $${cur.ma200.toFixed(1)}</div>
+            <div class="metric-note">${cur.ma50 > cur.ma200 ? '정배열' : '역배열'}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">RSI 14</div>
+            <div class="metric-value">${cur.rsi.toFixed(1)}</div>
+            <div class="metric-note">${describeRSI(cur.rsi)}</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">거래량</div>
+            <div class="metric-value">${Number.isFinite(cur.volumeRatio) ? cur.volumeRatio.toFixed(1) + 'x' : 'N/A'}</div>
+            <div class="metric-note">50일 평균 대비</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">1개월 수익률</div>
+            <div class="metric-value">${formatSignedPct(cur.ret1m)}</div>
+            <div class="metric-note">약 21거래일</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">3개월 수익률</div>
+            <div class="metric-value">${formatSignedPct(cur.ret3m)}</div>
+            <div class="metric-note">약 63거래일</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">6개월 수익률</div>
+            <div class="metric-value">${formatSignedPct(cur.ret6m)}</div>
+            <div class="metric-note">약 126거래일</div>
+        </div>
+        <div class="metric">
+            <div class="metric-label">상대강도</div>
+            <div class="metric-value">${spyText} / ${qqqText}</div>
+            <div class="metric-note">SPY / QQQ 대비 3개월</div>
+        </div>
+    `;
+
+    document.getElementById('signals').innerHTML = signals.signals.map(s => {
+        const pointText = s.points > 0 ? `+${s.points}` : `${s.points}`;
+        return `<div class="signal signal-${s.type}">
+            <span><strong>${s.title}</strong><br>${s.detail}</span>
+            <strong>${pointText}</strong>
+        </div>`;
+    }).join('');
+
+    const summary = summarizeScore(signals.score);
+    const sumEl = document.getElementById('summary');
+    sumEl.className = 'summary signal-' + summary.type;
+    sumEl.innerHTML = `${summary.label} <span style="font-size:15px;">(${signals.score}/${signals.maxScore}점)</span>
+        <div class="summary-sub">${summary.detail}</div>`;
+
+    drawSimpleChart(data.slice(-125).map(d => d.close), ma50.slice(-125), ma200.slice(-125));
+}
+
+function summarizeScore(score) {
+    if (score >= 8) {
+        return {
+            type: 'good',
+            label: '🚀 강한 모멘텀',
+            detail: '추세, 모멘텀, 상대강도가 대체로 좋습니다. 다만 RSI 과열과 급등 후 눌림 가능성은 별도로 확인하세요.'
+        };
+    }
+    if (score >= 4) {
+        return {
+            type: 'neutral',
+            label: '⚖️ 양호하지만 확인 필요',
+            detail: '상승 조건은 일부 충족하지만 약한 항목이 있습니다. 매수 전 지지선, 실적, 시장 흐름을 함께 보세요.'
+        };
+    }
+    if (score >= 0) {
+        return {
+            type: 'neutral',
+            label: '🟡 중립/관망',
+            detail: '좋은 신호와 나쁜 신호가 섞여 있습니다. 신규 진입보다는 돌파나 회복 확인이 더 안전합니다.'
+        };
+    }
+    return {
+        type: 'bad',
+        label: '⚠️ 약한 모멘텀',
+        detail: '장기 추세나 상대강도가 약합니다. 반등 매매가 아니라면 방어적으로 보는 편이 좋습니다.'
+    };
+}
+
 async function fetchStockData(ticker) {
     const errors = [];
 
-    // 1순위: Yahoo Finance 차트 JSON. API 키 없이 쓰기 쉽지만 비공식 엔드포인트입니다.
     try {
         const yahooSymbol = normalizeYahooTicker(ticker);
         const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=3y&interval=1d&includePrePost=false&events=history`;
@@ -142,7 +462,6 @@ async function fetchStockData(ticker) {
         errors.push(`Yahoo: ${e.message}`);
     }
 
-    // 2순위: Stooq CSV 백업. 별도 키 없이 열리는 경우에만 사용합니다.
     try {
         const stooqSymbol = normalizeStooqTicker(ticker);
         const end = new Date();
@@ -206,10 +525,7 @@ function normalizeYahooTicker(raw) {
     let t = (raw || "").trim().toUpperCase().replace(/\s+/g, "");
     if (!t) throw new Error("티커를 입력해주세요.");
 
-    // 사용자가 Stooq식으로 TSM.US를 입력하면 Yahoo식 TSM으로 바꿉니다.
     if (t.endsWith(".US")) t = t.slice(0, -3);
-
-    // Yahoo는 BRK.B / BF.B 같은 미국 클래스 주식을 BRK-B / BF-B로 씁니다.
     if (/^[A-Z]{1,5}\.[A-Z]$/.test(t)) t = t.replace(".", "-");
 
     return t;
@@ -242,6 +558,7 @@ function parseYahooChartJSON(text) {
     const quote = result?.indicators?.quote?.[0];
     const adjClose = result?.indicators?.adjclose?.[0]?.adjclose;
     const closes = adjClose || quote?.close;
+    const volumes = quote?.volume || [];
 
     if (!Array.isArray(timestamps) || !Array.isArray(closes)) {
         throw new Error("Yahoo 데이터 형식을 읽을 수 없습니다.");
@@ -249,18 +566,42 @@ function parseYahooChartJSON(text) {
 
     return timestamps.map((ts, i) => {
         const close = Number(closes[i]);
+        const volume = Number(volumes[i]);
         return {
             date: new Date(ts * 1000).toISOString().slice(0, 10),
-            close
+            close,
+            volume: Number.isFinite(volume) ? volume : NaN
         };
     }).filter(d => Number.isFinite(d.close) && d.date);
 }
 
-function formatYYYYMMDD(date) {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, "0");
-    const d = String(date.getDate()).padStart(2, "0");
-    return `${y}${m}${d}`;
+function isValidStooqCSV(csv) {
+    const lines = csv.trim().split(/\r?\n/);
+    if (lines.length < 2) return false;
+
+    const header = lines[0].toLowerCase().replace(/\s+/g, "");
+    return header.includes("date") && header.includes("close");
+}
+
+function parseStooqCSV(csv) {
+    const lines = csv.trim().split(/\r?\n/);
+    const header = lines[0].toLowerCase().replace(/\s+/g, "").split(',');
+    const closeIdx = header.indexOf('close');
+    const dateIdx = header.indexOf('date');
+    const volumeIdx = header.indexOf('volume');
+
+    if (closeIdx === -1 || dateIdx === -1) throw new Error("Stooq 데이터 형식을 읽을 수 없습니다.");
+
+    return lines.slice(1).map(line => {
+        const cols = line.split(',');
+        const close = parseFloat(cols[closeIdx]);
+        const volume = volumeIdx >= 0 ? parseFloat(cols[volumeIdx]) : NaN;
+        return {
+            date: cols[dateIdx],
+            close,
+            volume: Number.isFinite(volume) ? volume : NaN
+        };
+    }).filter(d => Number.isFinite(d.close) && d.date);
 }
 
 async function fetchTextWithTimeout(url, timeoutMs) {
@@ -293,40 +634,101 @@ function unwrapPossibleProxyPayload(text) {
     return text;
 }
 
-function isValidStooqCSV(csv) {
-    const lines = csv.trim().split(/\r?\n/);
-    if (lines.length < 2) return false;
-
-    const header = lines[0].toLowerCase().replace(/\s+/g, "");
-    return header.includes("date") && header.includes("close");
-}
-
-function parseStooqCSV(csv) {
-    const lines = csv.trim().split(/\r?\n/);
-    const header = lines[0].toLowerCase().replace(/\s+/g, "").split(',');
-    const closeIdx = header.indexOf('close');
-    const dateIdx = header.indexOf('date');
-
-    if (closeIdx === -1 || dateIdx === -1) throw new Error("Stooq 데이터 형식을 읽을 수 없습니다.");
-
-    return lines.slice(1).map(line => {
-        const cols = line.split(',');
-        return {
-            date: cols[dateIdx],
-            close: parseFloat(cols[closeIdx])
-        };
-    }).filter(d => Number.isFinite(d.close) && d.date);
-}
-
 function calculateSMA(data, period) {
-    let result = new Array(data.length).fill(NaN);
+    const result = new Array(data.length).fill(NaN);
     let sum = 0;
+
     for (let i = 0; i < data.length; i++) {
         sum += data[i];
         if (i >= period) sum -= data[i - period];
         if (i >= period - 1) result[i] = sum / period;
     }
+
     return result;
+}
+
+function calculateRSI(closes, period = 14) {
+    const result = new Array(closes.length).fill(NaN);
+    if (closes.length <= period) return result;
+
+    let gain = 0;
+    let loss = 0;
+
+    for (let i = 1; i <= period; i++) {
+        const diff = closes[i] - closes[i - 1];
+        if (diff >= 0) gain += diff;
+        else loss -= diff;
+    }
+
+    let avgGain = gain / period;
+    let avgLoss = loss / period;
+    result[period] = rsiFromAverages(avgGain, avgLoss);
+
+    for (let i = period + 1; i < closes.length; i++) {
+        const diff = closes[i] - closes[i - 1];
+        const currentGain = diff > 0 ? diff : 0;
+        const currentLoss = diff < 0 ? -diff : 0;
+
+        avgGain = ((avgGain * (period - 1)) + currentGain) / period;
+        avgLoss = ((avgLoss * (period - 1)) + currentLoss) / period;
+
+        result[i] = rsiFromAverages(avgGain, avgLoss);
+    }
+
+    return result;
+}
+
+function rsiFromAverages(avgGain, avgLoss) {
+    if (avgLoss === 0 && avgGain === 0) return 50;
+    if (avgLoss === 0) return 100;
+    const rs = avgGain / avgLoss;
+    return 100 - (100 / (1 + rs));
+}
+
+function calculateAverage(values) {
+    const clean = values.filter(Number.isFinite);
+    if (!clean.length) return NaN;
+    return clean.reduce((sum, value) => sum + value, 0) / clean.length;
+}
+
+function periodReturn(values, days) {
+    if (!Array.isArray(values) || values.length <= days) return NaN;
+    const last = values[values.length - 1];
+    const prev = values[values.length - 1 - days];
+    if (!Number.isFinite(last) || !Number.isFinite(prev) || prev === 0) return NaN;
+    return last / prev - 1;
+}
+
+function pct(a, b) {
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b === 0) return NaN;
+    return a / b - 1;
+}
+
+function formatYYYYMMDD(date) {
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, "0");
+    const d = String(date.getDate()).padStart(2, "0");
+    return `${y}${m}${d}`;
+}
+
+function formatSignedPct(value) {
+    if (!Number.isFinite(value)) return 'N/A';
+    const pctValue = value * 100;
+    return `${pctValue >= 0 ? '+' : ''}${pctValue.toFixed(1)}%`;
+}
+
+function formatPct(value) {
+    if (!Number.isFinite(value)) return 'N/A';
+    return `${(value * 100).toFixed(1)}%`;
+}
+
+function describeRSI(rsi) {
+    if (!Number.isFinite(rsi)) return 'N/A';
+    if (rsi >= 80) return '강한 과열';
+    if (rsi >= 70) return '과열 주의';
+    if (rsi >= 45) return '양호';
+    if (rsi >= 35) return '약세';
+    return '침체';
 }
 
 function showStatus(msg, isError) {
@@ -335,59 +737,38 @@ function showStatus(msg, isError) {
     statusDiv.style.color = isError ? 'var(--bad)' : 'var(--text-secondary)';
 }
 
-function renderUI(cur, ma50, ma200, allData) {
-    const dist52 = (cur.price / cur.high52 * 100).toFixed(1);
-    document.getElementById('metrics').innerHTML = `
-        <div class="metric"><div class="metric-label">현재가</div><div class="metric-value">$${cur.price.toFixed(2)}</div></div>
-        <div class="metric"><div class="metric-label">50일선</div><div class="metric-value">$${cur.ma50.toFixed(1)}</div></div>
-        <div class="metric"><div class="metric-label">200일선</div><div class="metric-value">$${cur.ma200.toFixed(1)}</div></div>
-        <div class="metric"><div class="metric-label">52주 고점대비</div><div class="metric-value">${dist52}%</div></div>
-    `;
-
-    let signals = [];
-    if (cur.price > cur.ma200) signals.push({type:'good', txt:'장기 추세 상방 유지'});
-    else signals.push({type:'bad', txt:'장기 추세 하방 국면'});
-
-    if (cur.ma50 > cur.ma200) signals.push({type:'good', txt:'이평선 정배열 상태'});
-    else signals.push({type:'bad', txt:'이평선 역배열 상태'});
-
-    document.getElementById('signals').innerHTML = signals.map(s => 
-        `<div class="signal signal-${s.type}"><span>${s.txt}</span></div>`
-    ).join('');
-
-    const goodCount = signals.filter(s => s.type === 'good').length;
-    const sumEl = document.getElementById('summary');
-    sumEl.className = 'summary ' + (goodCount === 2 ? 'signal-good' : goodCount === 1 ? 'signal-neutral' : 'signal-bad');
-    sumEl.textContent = goodCount === 2 ? "🚀 매수 우위" : goodCount === 1 ? "⚖️ 관망 필요" : "⚠️ 주의 요망";
-
-    drawSimpleChart(allData.slice(-125).map(d => d.close), ma50.slice(-125), ma200.slice(-125));
-}
-
 function drawSimpleChart(prices, m50, m200) {
     const svg = document.getElementById('chart');
     const W = 700, H = 320, pad = 50;
-    
+
+    const validM50 = m50.filter(v => !isNaN(v));
     const validM200 = m200.filter(v => !isNaN(v));
-    const allValues = [...prices, ...m50, ...validM200];
+    const allValues = [...prices, ...validM50, ...validM200].filter(Number.isFinite);
     const min = Math.min(...allValues) * 0.98;
     const max = Math.max(...allValues) * 1.02;
-    
-    const getX = (i) => (i / (prices.length - 1)) * (W - pad * 2) + pad;
-    const getY = (v) => H - ((v - min) / (max - min)) * (H - pad * 2) - pad;
-    
-    const line = (data, color, isDash) => {
+
+    const getX = (i) => (i / Math.max(1, prices.length - 1)) * (W - pad * 2) + pad;
+    const getY = (v) => H - ((v - min) / Math.max(0.000001, max - min)) * (H - pad * 2) - pad;
+
+    const line = (data, color, isDash, width) => {
         let path = "";
         let started = false;
         data.forEach((v, i) => {
-            if(isNaN(v)) return;
+            if (!Number.isFinite(v)) return;
             const x = getX(i), y = getY(v);
-            path += (started ? " L " : "M ") + x + " " + y;
+            path += (started ? " L " : "M ") + x.toFixed(2) + " " + y.toFixed(2);
             started = true;
         });
-        return `<path d="${path}" fill="none" stroke="${color}" stroke-width="${isDash?1.5:2.5}" ${isDash?'stroke-dasharray="6 4"':''}/>`;
+        if (!path) return "";
+        return `<path d="${path}" fill="none" stroke="${color}" stroke-width="${width}" ${isDash ? 'stroke-dasharray="6 4"' : ''}/>`;
     };
-    
-    svg.innerHTML = line(m200, '#6c6c66', true) + line(m50, '#d97942', false) + line(prices, '#1a4d8c', false);
+
+    const grid = [0, 0.25, 0.5, 0.75, 1].map(r => {
+        const y = pad + r * (H - pad * 2);
+        return `<line x1="${pad}" y1="${y}" x2="${W - pad}" y2="${y}" stroke="rgba(0,0,0,0.06)" stroke-width="1"/>`;
+    }).join("");
+
+    svg.innerHTML = grid + line(m200, '#6c6c66', true, 1.5) + line(m50, '#d97942', false, 2) + line(prices, '#1a4d8c', false, 2.5);
 }
 </script>
 </body>
