@@ -217,6 +217,46 @@ async function getQuote(ticker){
   return row;
 }
 
+async function getFinvizData(ticker){
+  try{
+    const url=`https://finviz.com/quote.ashx?t=${encodeURIComponent(ticker)}&ty=c&ta=1&p=d`;
+    const html=await fetchText(url);
+    return parseFinvizHtml(html);
+  }catch(_){return null}
+}
+
+function parseFinvizHtml(html){
+  let doc;
+  try{doc=new DOMParser().parseFromString(html,'text/html')}catch(_){return null}
+  const lbls=Array.from(doc.querySelectorAll('td.snapshot-td2-cp'));
+  const vals=Array.from(doc.querySelectorAll('td.snapshot-td2'));
+  if(!lbls.length) return null;
+  const m={};
+  lbls.forEach((el,i)=>{const k=el.textContent.trim();const v=vals[i]?.textContent.trim()||'';if(k)m[k]=v});
+  const num=v=>{if(!v||v==='-')return null;const n=parseFloat(v.replace(/,/g,''));return isFinite(n)?n:null};
+  const pct=v=>{if(!v||v==='-')return null;const n=parseFloat(v.replace('%','').replace(/,/g,''));return isFinite(n)?n/100:null};
+  const mcap=v=>{if(!v||v==='-')return null;const u=v.toUpperCase();const mult=u.endsWith('T')?1e12:u.endsWith('B')?1e9:u.endsWith('M')?1e6:1;const n=parseFloat(v.replace(/[TBMK]/gi,'').replace(/,/g,''));return isFinite(n)?n*mult:null};
+  return{
+    pe:        num(m['P/E']),
+    fpe:       num(m['Forward P/E']),
+    ps:        num(m['P/S']),
+    pb:        num(m['P/B']),
+    divY:      pct(m['Dividend %']),
+    roe:       pct(m['ROE']),
+    roa:       pct(m['ROA']),
+    grossM:    pct(m['Gross Margin']),
+    opMargin:  pct(m['Oper. Margin']),
+    profitM:   pct(m['Profit Margin']),
+    // Finviz Debt/Eq는 비율(1.49)로 표기 → 코드 내부가 %기준(149)이므로 ×100
+    debtEq:    num(m['Debt/Eq'])!=null ? num(m['Debt/Eq'])*100 : null,
+    currRatio: num(m['Current Ratio']),
+    mcap:      mcap(m['Market Cap']),
+    earnGrowth:pct(m['EPS this Y']),
+    revGrowth: pct(m['Sales Q/Q']),
+    beta:      num(m['Beta'])
+  };
+}
+
 function sma(arr,n){if(arr.length<n)return null;return arr.slice(-n).reduce((a,b)=>a+b,0)/n}
 function rsi(closes,n=14){
   if(closes.length<n+1)return null;
@@ -334,6 +374,9 @@ async function loadFundamental(ticker){
   };
   let r, usedFallback=false;
   try{r=await getQuoteSummary(ticker)}catch(_){r=await fallbackFundamental();usedFallback=true}
+  // Finviz로 빠진 마진·ROE·부채 등 보완 (실패해도 무시)
+  const fvz=await getFinvizData(ticker);
+  const fv=(a,b)=>a!=null?a:b;  // Yahoo 우선, null이면 Finviz
   try{
     const sd=r.summaryDetail||{}, ks=r.defaultKeyStatistics||{}, fd=r.financialData||{}, ap=r.assetProfile||{}, pr=r.price||{}, qt=r.quoteType||{};
     const v=o=>o&&o.raw!=null?o.raw:null;
@@ -343,22 +386,22 @@ async function loadFundamental(ticker){
     const industry=ap.industry||'—';
     const country=ap.country||'';
     const employees=ap.fullTimeEmployees;
-    const mcap=v(sd.marketCap)||v(pr.marketCap);
-    const pe=v(sd.trailingPE)||v(ks.trailingPE);
-    const fpe=v(sd.forwardPE)||v(ks.forwardPE);
+    const mcap=fv(v(sd.marketCap)||v(pr.marketCap), fvz?.mcap);
+    const pe=fv(v(sd.trailingPE)||v(ks.trailingPE), fvz?.pe);
+    const fpe=fv(v(sd.forwardPE)||v(ks.forwardPE), fvz?.fpe);
     const peg=v(ks.pegRatio);
-    const pb=v(ks.priceToBook);
-    const ps=v(sd.priceToSalesTrailing12Months);
-    const divY=v(sd.dividendYield);
-    const roe=v(fd.returnOnEquity);
-    const roa=v(fd.returnOnAssets);
-    const margin=v(fd.profitMargins)||v(ks.profitMargins);
-    const opMargin=v(fd.operatingMargins);
-    const revGrowth=v(fd.revenueGrowth);
-    const earnGrowth=v(fd.earningsGrowth)||v(fd.earningsQuarterlyGrowth);
-    const debtEq=v(fd.debtToEquity);
-    const currentRatio=v(fd.currentRatio);
-    const beta=v(sd.beta)||v(ks.beta);
+    const pb=fv(v(ks.priceToBook), fvz?.pb);
+    const ps=fv(v(sd.priceToSalesTrailing12Months), fvz?.ps);
+    const divY=fv(v(sd.dividendYield), fvz?.divY);
+    const roe=fv(v(fd.returnOnEquity), fvz?.roe);
+    const roa=fv(v(fd.returnOnAssets), fvz?.roa);
+    const margin=fv(v(fd.profitMargins)||v(ks.profitMargins), fvz?.profitM);
+    const opMargin=fv(v(fd.operatingMargins), fvz?.opMargin);
+    const revGrowth=fv(v(fd.revenueGrowth), fvz?.revGrowth);
+    const earnGrowth=fv(v(fd.earningsGrowth)||v(fd.earningsQuarterlyGrowth), fvz?.earnGrowth);
+    const debtEq=fv(v(fd.debtToEquity), fvz?.debtEq);
+    const currentRatio=fv(v(fd.currentRatio), fvz?.currRatio);
+    const beta=fv(v(sd.beta)||v(ks.beta), fvz?.beta);
 
     // scoring (0~100) — adapt for ETF
     const isETF=qt.quoteType==='ETF';
@@ -453,7 +496,7 @@ async function loadFundamental(ticker){
         <div class="bar-list">
           ${bars.map(b=>`<div class="bar-row"><div class="bar-label">${b.l}</div><div class="bar-track"><div class="bar-fill ${b.cls(b.v)}" style="width:${b.scale(b.v)}%"></div></div><div class="bar-val">${b.fmt(b.v)}</div></div>`).join('')}
         </div>
-        <div class="mini-note">※ ${usedFallback?'상세 펀더멘털이 제한되어 공개 quote/차트 데이터로 대체 계산했습니다.':'펀더멘털 데이터는 Yahoo Finance 공개 엔드포인트(CORS 프록시 경유)로 가져옵니다.'} ETF/ADR은 일부 항목이 비어 있을 수 있습니다.</div>
+        <div class="mini-note">※ ${usedFallback?'상세 펀더멘털이 제한되어 공개 quote/차트 데이터로 대체 계산했습니다.':'Yahoo Finance 공개 엔드포인트(CORS 프록시 경유)로 가져옵니다.'}${fvz?' · 일부 항목은 Finviz에서 보완했습니다.':''} ETF/ADR은 일부 항목이 비어 있을 수 있습니다.</div>
       </div>`:''}
     `;
   }catch(e){
