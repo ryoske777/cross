@@ -77,7 +77,7 @@
     </div>
 
     <div class="footer">
-        데이터 출처: Stooq.com (미국 주식) &copy; 2026
+        데이터 출처: Yahoo Finance 비공식 차트 API 우선 / Stooq 백업 &copy; 2026
     </div>
 </div>
 
@@ -97,8 +97,7 @@ async function analyze(ticker) {
     resultsDiv.style.display = 'none';
 
     try {
-        const csv = await fetchStockData(ticker);
-        const data = parseCSV(csv);
+        const data = await fetchStockData(ticker);
         
         // 데이터 정렬 및 유효성 검사
         data.sort((a, b) => a.date.localeCompare(b.date));
@@ -128,87 +127,133 @@ async function analyze(ticker) {
     }
 }
 
-// Stooq에서 API key를 요구하는 경우 아래에 입력하세요.
-// 예: const STOOQ_API_KEY = "발급받은키";
-const STOOQ_API_KEY = "";
-
 async function fetchStockData(ticker) {
-    const symbol = normalizeStooqTicker(ticker);
-
-    // 200일선 계산에는 1년보다 긴 데이터가 필요합니다.
-    // 전체 이력을 받으면 무료 프록시의 용량 제한에 걸리기 쉬우므로 최근 3년만 요청합니다.
-    const end = new Date();
-    const start = new Date();
-    start.setFullYear(end.getFullYear() - 3);
-
-    const params = new URLSearchParams({
-        s: symbol,
-        d1: formatYYYYMMDD(start),
-        d2: formatYYYYMMDD(end),
-        i: "d"
-    });
-
-    if (STOOQ_API_KEY.trim()) {
-        params.set("apikey", STOOQ_API_KEY.trim());
-    }
-
-    // Stooq CSV 다운로드 기본 형식: /q/d/l/?s=티커&i=d
-    const baseUrl = `https://stooq.com/q/d/l/?${params.toString()}`;
-
-    // direct는 CORS 설정에 따라 실패할 수 있으므로, 실패하면 프록시를 순차 시도합니다.
-    const candidates = [
-        { name: "direct", url: baseUrl },
-        { name: "allorigins", url: `https://api.allorigins.win/raw?url=${encodeURIComponent(baseUrl)}` },
-        // corsproxy.io는 ?url=<encoded-url> 형식이어야 합니다.
-        { name: "corsproxy.io", url: `https://corsproxy.io/?url=${encodeURIComponent(baseUrl)}` },
-        { name: "thingproxy", url: `https://thingproxy.freeboard.io/fetch/${baseUrl}` }
-    ];
-
     const errors = [];
 
-    for (const candidate of candidates) {
-        try {
-            const text = await fetchTextWithTimeout(candidate.url, 12000);
-            const csv = unwrapPossibleProxyPayload(text);
-            const lower = csv.toLowerCase();
+    // 1순위: Yahoo Finance 차트 JSON. API 키 없이 쓰기 쉽지만 비공식 엔드포인트입니다.
+    try {
+        const yahooSymbol = normalizeYahooTicker(ticker);
+        const yahooUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(yahooSymbol)}?range=3y&interval=1d&includePrePost=false&events=history`;
+        const jsonText = await fetchThroughCandidates(yahooUrl, "yahoo", 12000);
+        const data = parseYahooChartJSON(jsonText);
+        if (data.length >= 200) return data;
+        errors.push(`Yahoo: 데이터 부족 (${data.length}일치)`);
+    } catch (e) {
+        errors.push(`Yahoo: ${e.message}`);
+    }
 
-            if (lower.includes("get your apikey") || lower.includes("get_apikey")) {
-                throw new Error(`${candidate.name}: Stooq API key 필요`);
-            }
+    // 2순위: Stooq CSV 백업. 별도 키 없이 열리는 경우에만 사용합니다.
+    try {
+        const stooqSymbol = normalizeStooqTicker(ticker);
+        const end = new Date();
+        const start = new Date();
+        start.setFullYear(end.getFullYear() - 3);
 
-            if (isValidStooqCSV(csv)) {
-                return csv;
-            }
+        const params = new URLSearchParams({
+            s: stooqSymbol,
+            d1: formatYYYYMMDD(start),
+            d2: formatYYYYMMDD(end),
+            i: "d"
+        });
 
-            const preview = csv.replace(/\s+/g, " ").slice(0, 120);
-            throw new Error(`${candidate.name}: CSV 응답이 아님 (${preview || "빈 응답"})`);
-        } catch (e) {
-            errors.push(e.message);
+        const stooqUrl = `https://stooq.com/q/d/l/?${params.toString()}`;
+        const csvText = await fetchThroughCandidates(stooqUrl, "stooq", 12000);
+        const lower = csvText.toLowerCase();
+
+        if (lower.includes("get your apikey") || lower.includes("get_apikey")) {
+            throw new Error("Stooq가 API key를 요구함");
         }
+
+        if (!isValidStooqCSV(csvText)) {
+            const preview = csvText.replace(/\s+/g, " ").slice(0, 120);
+            throw new Error(`CSV 응답이 아님 (${preview || "빈 응답"})`);
+        }
+
+        const data = parseStooqCSV(csvText);
+        if (data.length >= 200) return data;
+        errors.push(`Stooq: 데이터 부족 (${data.length}일치)`);
+    } catch (e) {
+        errors.push(`Stooq: ${e.message}`);
     }
 
     console.warn("Stock fetch failed:", errors);
+    throw new Error(`데이터를 가져오지 못했습니다. 티커가 맞다면 브라우저 CORS 또는 무료 데이터 엔드포인트 일시 문제입니다. 상세: ${errors.join(" / ")}`);
+}
 
-    if (!STOOQ_API_KEY.trim() && errors.some(e => e.toLowerCase().includes("api key"))) {
-        throw new Error("Stooq가 CSV 다운로드에 API key를 요구했습니다. Stooq에서 키를 발급받아 코드의 STOOQ_API_KEY에 입력해주세요.");
+async function fetchThroughCandidates(targetUrl, sourceName, timeoutMs) {
+    const candidates = [
+        { name: `${sourceName}-direct`, url: targetUrl },
+        { name: `${sourceName}-allorigins`, url: `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}` },
+        { name: `${sourceName}-corsproxy`, url: `https://corsproxy.io/?url=${encodeURIComponent(targetUrl)}` }
+    ];
+
+    const errors = [];
+    for (const candidate of candidates) {
+        try {
+            const text = await fetchTextWithTimeout(candidate.url, timeoutMs);
+            const unwrapped = unwrapPossibleProxyPayload(text);
+            if (unwrapped && unwrapped.trim().length > 0) return unwrapped;
+            throw new Error("빈 응답");
+        } catch (e) {
+            errors.push(`${candidate.name}: ${e.message}`);
+        }
     }
 
-    throw new Error(`데이터를 가져오지 못했습니다. 티커가 맞다면 CORS 프록시 또는 Stooq 응답 문제입니다. 상세: ${errors[errors.length - 1] || "원인 미상"}`);
+    throw new Error(errors.join(" | "));
+}
+
+function normalizeYahooTicker(raw) {
+    let t = (raw || "").trim().toUpperCase().replace(/\s+/g, "");
+    if (!t) throw new Error("티커를 입력해주세요.");
+
+    // 사용자가 Stooq식으로 TSM.US를 입력하면 Yahoo식 TSM으로 바꿉니다.
+    if (t.endsWith(".US")) t = t.slice(0, -3);
+
+    // Yahoo는 BRK.B / BF.B 같은 미국 클래스 주식을 BRK-B / BF-B로 씁니다.
+    if (/^[A-Z]{1,5}\.[A-Z]$/.test(t)) t = t.replace(".", "-");
+
+    return t;
 }
 
 function normalizeStooqTicker(raw) {
     let t = (raw || "").trim().toLowerCase().replace(/\s+/g, "");
     if (!t) throw new Error("티커를 입력해주세요.");
 
-    // 지수는 Stooq에서 ^SPX처럼 접미사 없이 사용합니다.
     if (t.startsWith("^")) return t;
-
-    // 사용자가 TSM.US처럼 거래소 접미사를 이미 붙인 경우 중복으로 .us를 붙이지 않습니다.
     const knownMarketSuffixes = [".us", ".uk", ".de", ".jp", ".hk", ".pl", ".hu"];
     if (knownMarketSuffixes.some(suffix => t.endsWith(suffix))) return t;
-
-    // BRK.B 같은 클래스 주식은 brk.b.us로 만들어야 하므로 점이 있어도 .us를 붙입니다.
     return `${t}.us`;
+}
+
+function parseYahooChartJSON(text) {
+    let json;
+    try {
+        json = JSON.parse(text);
+    } catch (_) {
+        const preview = text.replace(/\s+/g, " ").slice(0, 120);
+        throw new Error(`JSON 응답이 아님 (${preview || "빈 응답"})`);
+    }
+
+    const chart = json.chart;
+    if (chart?.error) throw new Error(chart.error.description || "Yahoo 응답 오류");
+
+    const result = chart?.result?.[0];
+    const timestamps = result?.timestamp;
+    const quote = result?.indicators?.quote?.[0];
+    const adjClose = result?.indicators?.adjclose?.[0]?.adjclose;
+    const closes = adjClose || quote?.close;
+
+    if (!Array.isArray(timestamps) || !Array.isArray(closes)) {
+        throw new Error("Yahoo 데이터 형식을 읽을 수 없습니다.");
+    }
+
+    return timestamps.map((ts, i) => {
+        const close = Number(closes[i]);
+        return {
+            date: new Date(ts * 1000).toISOString().slice(0, 10),
+            close
+        };
+    }).filter(d => Number.isFinite(d.close) && d.date);
 }
 
 function formatYYYYMMDD(date) {
@@ -228,10 +273,7 @@ async function fetchTextWithTimeout(url, timeoutMs) {
             cache: "no-store"
         });
 
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
-
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
         return await response.text();
     } finally {
         clearTimeout(timer);
@@ -241,7 +283,6 @@ async function fetchTextWithTimeout(url, timeoutMs) {
 function unwrapPossibleProxyPayload(text) {
     const trimmed = text.trim();
 
-    // AllOrigins의 /get 엔드포인트 등 JSON 포장 응답이 들어와도 처리할 수 있게 방어합니다.
     if (trimmed.startsWith("{")) {
         try {
             const json = JSON.parse(trimmed);
@@ -260,22 +301,21 @@ function isValidStooqCSV(csv) {
     return header.includes("date") && header.includes("close");
 }
 
-function parseCSV(csv) {
-    const lines = csv.trim().split('\n');
-    const header = lines[0].toLowerCase().split(',');
-    
+function parseStooqCSV(csv) {
+    const lines = csv.trim().split(/\r?\n/);
+    const header = lines[0].toLowerCase().replace(/\s+/g, "").split(',');
     const closeIdx = header.indexOf('close');
     const dateIdx = header.indexOf('date');
-    
-    if (closeIdx === -1 || dateIdx === -1) throw new Error("데이터 형식을 읽을 수 없습니다.");
+
+    if (closeIdx === -1 || dateIdx === -1) throw new Error("Stooq 데이터 형식을 읽을 수 없습니다.");
 
     return lines.slice(1).map(line => {
         const cols = line.split(',');
-        return { 
-            date: cols[dateIdx], 
-            close: parseFloat(cols[closeIdx]) 
+        return {
+            date: cols[dateIdx],
+            close: parseFloat(cols[closeIdx])
         };
-    }).filter(d => !isNaN(d.close) && d.date);
+    }).filter(d => Number.isFinite(d.close) && d.date);
 }
 
 function calculateSMA(data, period) {
