@@ -71,12 +71,13 @@
             <div id="summary"></div>
         </div>
         <div class="card">
+            <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 10px;">최근 6개월 추세 (파랑:가격 / 주황:50일선 / 점선:200일선)</div>
             <svg id="chart" viewBox="0 0 700 320" style="width:100%; height:auto;"></svg>
         </div>
     </div>
 
     <div class="footer">
-        데이터 출처: Stooq.com (지연 데이터) &copy; 2024
+        데이터 출처: Stooq.com (미국 주식 전용) &copy; 2026
     </div>
 </div>
 
@@ -92,14 +93,15 @@ document.querySelectorAll('.quick-btn').forEach(b => b.addEventListener('click',
 async function analyze(ticker) {
     if(!ticker) return;
     tickerInput.value = ticker;
-    showStatus('<span class="loader"></span> 데이터를 불러오는 중...', false);
+    showStatus('<span class="loader"></span> 서버에서 데이터를 가져오고 있습니다...', false);
     resultsDiv.style.display = 'none';
 
     try {
         const csv = await fetchStockData(ticker);
         const data = parseCSV(csv).sort((a, b) => a.date.localeCompare(b.date));
         
-        if (data.length < 200) throw new Error("분석에 필요한 데이터가 부족합니다.");
+        // 200일선 계산을 위해 최소 데이터 검증 (Stooq 응답 지연 대비 190일로 소폭 완화)
+        if (data.length < 190) throw new Error(`데이터가 부족합니다. (현재 ${data.length}일치 확보)`);
 
         const closes = data.map(d => d.close);
         const ma50 = calculateSMA(closes, 50);
@@ -109,8 +111,11 @@ async function analyze(ticker) {
             price: closes[closes.length - 1],
             ma50: ma50[ma50.length - 1],
             ma200: ma200[ma200.length - 1],
-            high52: Math.max(...closes.slice(-252))
+            high52: Math.max(...closes.slice(-Math.min(252, closes.length)))
         };
+
+        // 데이터가 없어 NaN이 나오는 경우 처리
+        if (isNaN(current.ma200)) throw new Error("장기 이동평균선(200일)을 계산할 데이터가 충분하지 않습니다.");
 
         renderUI(current, ma50, ma200, data);
         statusDiv.style.display = 'none';
@@ -121,21 +126,23 @@ async function analyze(ticker) {
 }
 
 async function fetchStockData(ticker) {
-    // 1순위 프록시: corsproxy.io (비교적 안정적)
-    const url = `https://stooq.com/q/d/l/?s=${ticker}.us&i=d`;
+    // 핵심 수정 사항: &get=all 파라미터를 추가하여 전체 데이터를 요청함
+    const url = `https://stooq.com/q/d/l/?s=${ticker}.us&i=d&get=all`;
     const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
     
     try {
         const resp = await fetch(proxyUrl);
-        if (!resp.ok) throw new Error("데이터 서버 응답 실패");
+        if (!resp.ok) throw new Error("데이터 서버(1) 응답 실패");
         const text = await resp.text();
-        if (text.includes("<html>") || text.length < 100) throw new Error("티커 정보 없음");
+        if (text.includes("<html>") || text.length < 500) throw new Error("데이터 형식이 올바르지 않거나 티커를 찾을 수 없습니다.");
         return text;
     } catch (e) {
-        // 2순위 프록시: AllOrigins (백업용)
+        console.warn("메인 프록시 실패, 백업 시도 중...");
         const backupProxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
         const resp = await fetch(backupProxy);
-        return await resp.text();
+        const text = await resp.text();
+        if (text.length < 500) throw new Error("티커 정보가 없거나 데이터를 가져올 수 없습니다.");
+        return text;
     }
 }
 
@@ -144,9 +151,13 @@ function parseCSV(csv) {
     const header = lines[0].toLowerCase().split(',');
     const closeIdx = header.indexOf('close');
     const dateIdx = header.indexOf('date');
+    
     return lines.slice(1).map(line => {
         const cols = line.split(',');
-        return { date: cols[dateIdx], close: parseFloat(cols[closeIdx]) };
+        return { 
+            date: cols[dateIdx], 
+            close: parseFloat(cols[closeIdx]) 
+        };
     }).filter(d => !isNaN(d.close));
 }
 
@@ -192,17 +203,23 @@ function renderUI(cur, ma50, ma200, allData) {
     sumEl.className = 'summary ' + (goodCount === 2 ? 'signal-good' : goodCount === 1 ? 'signal-neutral' : 'signal-bad');
     sumEl.textContent = goodCount === 2 ? "🚀 매수 우위" : goodCount === 1 ? "⚖️ 관망 필요" : "⚠️ 주의 요망";
 
+    // 차트 데이터 범위: 최근 125일 (약 6개월)
     drawSimpleChart(allData.slice(-125).map(d => d.close), ma50.slice(-125), ma200.slice(-125));
 }
 
 function drawSimpleChart(prices, m50, m200) {
     const svg = document.getElementById('chart');
-    const W = 700, H = 320, pad = 50;
-    const filteredM200 = m200.filter(v=>!isNaN(v));
-    const min = Math.min(...prices, ...m50, ...filteredM200) * 0.98;
-    const max = Math.max(...prices, ...m50, ...filteredM200) * 1.02;
+    const W = 700, H = 320, pad = 40;
+    
+    // 유효한 값들만 추출하여 스케일 계산
+    const validM200 = m200.filter(v => !isNaN(v));
+    const allValues = [...prices, ...m50, ...validM200];
+    const min = Math.min(...allValues) * 0.95;
+    const max = Math.max(...allValues) * 1.05;
+    
     const getX = (i) => (i / (prices.length - 1)) * (W - pad * 2) + pad;
     const getY = (v) => H - ((v - min) / (max - min)) * (H - pad * 2) - pad;
+    
     const line = (data, color, isDash) => {
         let path = "";
         let started = false;
@@ -214,7 +231,14 @@ function drawSimpleChart(prices, m50, m200) {
         });
         return `<path d="${path}" fill="none" stroke="${color}" stroke-width="${isDash?1.5:2.5}" ${isDash?'stroke-dasharray="6 4"':''}/>`;
     };
-    svg.innerHTML = line(m200, '#6c6c66', true) + line(m50, '#d97942', false) + line(prices, '#1a4d8c', false);
+    
+    // 배경 가이드선 (최소/최대)
+    const guides = `
+        <line x1="${pad}" y1="${getY(min/0.95)}" x2="${W-pad}" y2="${getY(min/0.95)}" stroke="#eee" stroke-width="1" />
+        <line x1="${pad}" y1="${getY(max/1.05)}" x2="${W-pad}" y2="${getY(max/1.05)}" stroke="#eee" stroke-width="1" />
+    `;
+    
+    svg.innerHTML = guides + line(m200, '#6c6c66', true) + line(m50, '#d97942', false) + line(prices, '#1a4d8c', false);
 }
 </script>
 </body>
