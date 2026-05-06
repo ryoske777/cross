@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- SEO 및 소셜 공유 최적화 -->
+    <title>Stock Momentum Checker — 주식 이평선 분석기</title>
+    <meta name="description" content="미국 주식 티커를 입력하여 50일, 200일 이동평균선과 모멘텀 신호를 분석합니다.">
+    <meta property="og:title" content="Stock Momentum Checker">
+    <meta property="og:description" content="이동평균선 기반 주식 매매 신호 분석 도구">
+    <meta property="og:type" content="website">
+    
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link rel="stylesheet" as="style" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable.css">
+    
+    <style>
+        :root {
+            --bg: #faf8f3; --surface: #ffffff; --text: #1f1f1d;
+            --text-secondary: #6c6c66; --text-tertiary: #a8a8a0;
+            --border: rgba(0,0,0,0.08); --good: #2d8659; --good-bg: #e8f5ee;
+            --bad: #c44343; --bad-bg: #fcebec; --neutral: #b07d2e;
+            --neutral-bg: #fbf2e1; --primary: #1a4d8c; --primary-hover: #0e3a73;
+            --price: #1a4d8c; --ma50: #d97942; --ma200: #6c6c66;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: "Pretendard Variable", sans-serif;
+            background: var(--bg); color: var(--text);
+            padding: 24px 16px; min-height: 100vh; line-height: 1.5;
+            -webkit-font-smoothing: antialiased;
+        }
+        .container { max-width: 720px; margin: 0 auto; }
+        .card { background: var(--surface); border-radius: 12px; padding: 20px; margin-bottom: 14px; border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.02); }
+        .search-row { display: flex; gap: 10px; }
+        .ticker-input { flex: 1; max-width: 180px; padding: 12px; border-radius: 8px; border: 1.5px solid var(--border); font-size: 16px; font-weight: 600; text-transform: uppercase; outline: none; transition: border-color 0.2s; }
+        .ticker-input:focus { border-color: var(--primary); }
+        button.primary { background: var(--primary); color: white; border: none; padding: 12px 24px; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 15px; transition: background 0.2s; }
+        button.primary:hover { background: var(--primary-hover); }
+        .quick-buttons { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+        .quick-btn { background: white; border: 1px solid var(--border); padding: 6px 14px; font-size: 13px; border-radius: 6px; cursor: pointer; color: var(--text-secondary); font-weight: 500; transition: all 0.2s; }
+        .quick-btn:hover { border-color: var(--primary); color: var(--primary); background: var(--bg); }
+        .metrics { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+        @media (min-width: 480px) { .metrics { grid-template-columns: repeat(4, 1fr); } }
+        .metric { padding: 16px; background: var(--bg); border-radius: 10px; text-align: center; }
+        .metric-label { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+        .metric-value { font-size: 18px; font-weight: 800; color: var(--text); }
+        .signal { padding: 14px; margin: 8px 0; border-radius: 10px; display: flex; justify-content: space-between; font-size: 14.5px; align-items: center; }
+        .signal-good { background: var(--good-bg); color: var(--good); border: 1px solid rgba(45, 134, 89, 0.1); }
+        .signal-bad { background: var(--bad-bg); color: var(--bad); border: 1px solid rgba(196, 67, 67, 0.1); }
+        .signal-neutral { background: var(--neutral-bg); color: var(--neutral); border: 1px solid rgba(176, 125, 46, 0.1); }
+        .summary { margin-top: 16px; padding: 18px; border-radius: 12px; font-weight: 800; text-align: center; font-size: 18px; }
+        svg.chart { width: 100%; height: auto; margin-top: 15px; background: #fff; border-radius: 8px; }
+        .footer { text-align: center; color: var(--text-tertiary); font-size: 12px; margin-top: 40px; padding-bottom: 20px; line-height: 1.8; }
+        
+        /* 로딩 애니메이션 */
+        .loader { width: 20px; height: 20px; border: 3px solid #FFF; border-bottom-color: transparent; border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; vertical-align: middle; margin-right: 8px; }
+        @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header style="margin-bottom:24px; text-align: center;">
+        <h1 style="font-size: 26px; letter-spacing: -0.5px;">📈 모멘텀 신호 체크</h1>
+        <p style="color:var(--text-secondary); font-size:14px; margin-top: 4px;">주가와 이동평균선을 통한 추세 분석</p>
+    </header>
+    
+    <div class="card">
+        <div class="search-row">
+            <input type="text" id="ticker" class="ticker-input" value="TSM" placeholder="티커 입력">
+            <button class="primary" id="searchBtn">분석하기</button>
+        </div>
+        <div class="quick-buttons">
+            <button class="quick-btn" data-ticker="TSM">TSM</button>
+            <button class="quick-btn" data-ticker="NVDA">NVDA</button>
+            <button class="quick-btn" data-ticker="AAPL">AAPL</button>
+            <button class="quick-btn" data-ticker="MSFT">MSFT</button>
+            <button class="quick-btn" data-ticker="QQQ">QQQ</button>
+            <button class="quick-btn" data-ticker="SPY">SPY</button>
+        </div>
+    </div>
+
+    <div id="status" style="display:none; text-align:center; padding:30px; border-radius: 12px;" class="card"></div>
+
+    <div id="results" style="display:none animate__animated animate__fadeIn">
+        <div class="card">
+            <div style="font-size:13px; font-weight:700; color:var(--text-secondary); margin-bottom:15px; text-transform: uppercase;">Key Metrics</div>
+            <div class="metrics" id="metrics"></div>
+        </div>
+        <div class="card">
+            <div style="font-size:13px; font-weight:700; color:var(--text-secondary); margin-bottom:15px; text-transform: uppercase;">Technical Analysis</div>
+            <div id="signals"></div>
+            <div id="summary"></div>
+        </div>
+        <div class="card">
+            <div style="font-size:13px; font-weight:700; color:var(--text-secondary); margin-bottom:15px; text-transform: uppercase;">Price Trend (6 Months)</div>
+            <svg id="chart" viewBox="0 0 700 320"></svg>
+            <div style="display: flex; justify-content: center; gap: 15px; font-size: 11px; margin-top: 10px; color: var(--text-secondary);">
+                <span><b style="color: var(--price)">━</b> 주가</span>
+                <span><b style="color: var(--ma50)">━</b> 50일선</span>
+                <span><b style="color: var(--ma200)">---</b> 200일선</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        데이터 출처: <strong>Stooq.com</strong> (지연 데이터)<br>
+        본 사이트는 투자 참고용이며, 모든 투자 책임은 본인에게 있습니다.<br>
+        &copy; 2024 Stock Momentum Checker
+    </div>
+</div>
+
+<script>
+const tickerInput = document.getElementById('ticker');
+const searchBtn = document.getElementById('searchBtn');
+const resultsDiv = document.getElementById('results');
+const statusDiv = document.getElementById('status');
+
+searchBtn.addEventListener('click', () => analyze(tickerInput.value.trim().toUpperCase()));
+tickerInput.addEventListener('keypress', (e) => e.key === 'Enter' && analyze(tickerInput.value.trim().toUpperCase()));
+document.querySelectorAll('.quick-btn').forEach(b => b.addEventListener('click', () => analyze(b.dataset.ticker)));
+
+async function analyze(ticker) {
+    if(!ticker) return;
+    tickerInput.value = ticker;
+    showStatus('<span class="loader"></span> 데이터를 불러오는 중...', false);
+    resultsDiv.style.display = 'none';
+
+    try {
+        const csv = await fetchStockData(ticker);
+        const rawData = parseCSV(csv);
+        if (rawData.length < 200) throw new Error("분석에 필요한 충분한 데이터(200일 이상)가 없습니다.");
+
+        const data = rawData.sort((a, b) => a.date.localeCompare(b.date));
+        const closes = data.map(d => d.close);
+        
+        const ma50 = calculateSMA(closes, 50);
+        const ma200 = calculateSMA(closes, 200);
+        
+        const current = {
+            price: closes[closes.length - 1],
+            ma50: ma50[ma50.length - 1],
+            ma200: ma200[ma200.length - 1],
+            high52: Math.max(...closes.slice(-252)),
+            date: data[data.length - 1].date
+        };
+
+        renderUI(ticker, current, ma50, ma200, data);
+        statusDiv.style.display = 'none';
+        resultsDiv.style.display = 'block';
+    } catch (err) {
+        showStatus('❌ ' + err.message, true);
+    }
+}
+
+async function fetchStockData(ticker) {
+    const url = `https://stooq.com/q/d/l/?s=${ticker}.us&i=d`;
+    const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
+    
+    const resp = await fetch(proxy);
+    if (!resp.ok) throw new Error("데이터 서버 응답 실패");
+    const text = await resp.text();
+    if (text.includes("<html>") || text.length < 100) throw new Error("존재하지 않는 티커이거나 일시적인 오류입니다.");
+    return text;
+}
+
+function parseCSV(csv) {
+    const lines = csv.trim().split('\n');
+    const header = lines[0].toLowerCase().split(',');
+    const closeIdx = header.indexOf('close');
+    const dateIdx = header.indexOf('date');
+    
+    return lines.slice(1).map(line => {
+        const cols = line.split(',');
+        return { date: cols[dateIdx], close: parseFloat(cols[closeIdx]) };
+    }).filter(d => !isNaN(d.close));
+}
+
+function calculateSMA(data, period) {
+    let result = new Array(data.length).fill(NaN);
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) {
+        sum += data[i];
+        if (i >= period) sum -= data[i - period];
+        if (i >= period - 1) result[i] = sum / period;
+    }
+    return result;
+}
+
+function showStatus(msg, isError) {
+    statusDiv.style.display = 'block';
+    statusDiv.innerHTML = msg;
+    statusDiv.style.color = isError ? 'var(--bad)' : 'var(--text-secondary)';
+}
+
+function renderUI(ticker, cur, ma50, ma200, allData) {
+    const dist52 = (cur.price / cur.high52 * 100).toFixed(1);
+    document.getElementById('metrics').innerHTML = `
+        <div class="metric"><div class="metric-label">현재가</div><div class="metric-value">$${cur.price.toLocaleString(undefined, {minimumFractionDigits: 2})}</div></div>
+        <div class="metric"><div class="metric-label">50일 평균</div><div class="metric-value">$${cur.ma50.toFixed(1)}</div></div>
+        <div class="metric"><div class="metric-label">200일 평균</div><div class="metric-value">$${cur.ma200.toFixed(1)}</div></div>
+        <div class="metric"><div class="metric-label">52주 고점대비</div><div class="metric-value">${dist52}%</div></div>
+    `;
+
+    const signals = [];
+    const crossInfo = checkCross(ma50, ma200);
+
+    if (cur.price > cur.ma200) signals.push({type:'good', txt:'주가가 장기 저항선(200일) 위에 안착했습니다.'});
+    else signals.push({type:'bad', txt:'주가가 장기 이동평균선 아래에 머물러 있습니다.'});
+
+    if (crossInfo === 'golden') signals.push({type:'good', txt:'✨ 골든크로스 발생: 단기 추세가 장기 추세를 돌파!'});
+    else if (cur.ma50 > cur.ma200) signals.push({type:'good', txt:'현재 이평선 정배열로 상승 에너지가 유지 중입니다.'});
+    else signals.push({type:'bad', txt:'이평선 역배열 상태로 하방 압력이 강합니다.'});
+
+    document.getElementById('signals').innerHTML = signals.map(s => 
+        `<div class="signal signal-${s.type}"><span>${s.type==='good'?'●':'○'} ${s.txt}</span></div>`
+    ).join('');
+
+    const goodCount = signals.filter(s => s.type === 'good').length;
+    const sumEl = document.getElementById('summary');
+    sumEl.className = 'summary ' + (goodCount === 2 ? 'signal-good' : goodCount === 1 ? 'signal-neutral' : 'signal-bad');
+    sumEl.textContent = goodCount === 2 ? "🚀 적극적 모멘텀 발생" : goodCount === 1 ? "⚖️ 추세 탐색 및 관망" : "⚠️ 하락 추세 주의";
+
+    drawSimpleChart(allData.slice(-125).map(d => d.close), ma50.slice(-125), ma200.slice(-125));
+}
+
+function checkCross(ma50, ma200) {
+    const n = ma50.length;
+    for(let i=0; i<15; i++) { 
+        const idx = n - 1 - i;
+        if(idx < 1) break;
+        if(ma50[idx] > ma200[idx] && ma50[idx-1] <= ma200[idx-1]) return 'golden';
+        if(ma50[idx] < ma200[idx] && ma50[idx-1] >= ma200[idx-1]) return 'dead';
+    }
+    return null;
+}
+
+function drawSimpleChart(prices, m50, m200) {
+    const svg = document.getElementById('chart');
+    const W = 700, H = 320, pad = 50;
+    const filteredM200 = m200.filter(v=>!isNaN(v));
+    const min = Math.min(...prices, ...m50, ...filteredM200) * 0.98;
+    const max = Math.max(...prices, ...m50, ...filteredM200) * 1.02;
+    
+    const getX = (i) => (i / (prices.length - 1)) * (W - pad * 2) + pad;
+    const getY = (v) => H - ((v - min) / (max - min)) * (H - pad * 2) - pad;
+
+    const line = (data, color, isDash) => {
+        let path = "";
+        let started = false;
+        data.forEach((v, i) => {
+            if(isNaN(v)) return;
+            const x = getX(i), y = getY(v);
+            path += (started ? " L " : "M ") + x + " " + y;
+            started = true;
+        });
+        return `<path d="${path}" fill="none" stroke="${color}" stroke-width="${isDash?1.5:2.5}" ${isDash?'stroke-dasharray="6 4"':''} stroke-linecap="round"/>`;
+    };
+
+    svg.innerHTML = `
+        <line x1="${pad}" y1="${getY(min)}" x2="${pad}" y2="${getY(max)}" stroke="#eee" />
+        <line x1="${pad}" y1="${getY(min)}" x2="${W-pad}" y2="${getY(min)}" stroke="#eee" />
+        ${line(m200, 'var(--ma200)', true)}
+        ${line(m50, 'var(--ma50)', false)}
+        ${line(prices, 'var(--price)', false)}
+    `;
+}
+
+window.onload = () => analyze('TSM');
+</script>
+</body>
+</html>
