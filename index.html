@@ -3,7 +3,6 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- SEO 및 소셜 공유 최적화 -->
     <title>Stock Momentum Checker — 주식 이평선 분석기</title>
     <meta name="description" content="미국 주식 티커를 입력하여 50일, 200일 이동평균선과 모멘텀 신호를 분석합니다.">
     <meta property="og:title" content="Stock Momentum Checker">
@@ -51,8 +50,6 @@
         .summary { margin-top: 16px; padding: 18px; border-radius: 12px; font-weight: 800; text-align: center; font-size: 18px; }
         svg.chart { width: 100%; height: auto; margin-top: 15px; background: #fff; border-radius: 8px; }
         .footer { text-align: center; color: var(--text-tertiary); font-size: 12px; margin-top: 40px; padding-bottom: 20px; line-height: 1.8; }
-        
-        /* 로딩 애니메이션 */
         .loader { width: 20px; height: 20px; border: 3px solid #FFF; border-bottom-color: transparent; border-radius: 50%; display: inline-block; animation: rotation 1s linear infinite; vertical-align: middle; margin-right: 8px; }
         @keyframes rotation { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
@@ -81,7 +78,7 @@
 
     <div id="status" style="display:none; text-align:center; padding:30px; border-radius: 12px;" class="card"></div>
 
-    <div id="results" style="display:none animate__animated animate__fadeIn">
+    <div id="results" style="display:none;">
         <div class="card">
             <div style="font-size:13px; font-weight:700; color:var(--text-secondary); margin-bottom:15px; text-transform: uppercase;">Key Metrics</div>
             <div class="metrics" id="metrics"></div>
@@ -128,7 +125,9 @@ async function analyze(ticker) {
     try {
         const csv = await fetchStockData(ticker);
         const rawData = parseCSV(csv);
-        if (rawData.length < 200) throw new Error("분석에 필요한 충분한 데이터(200일 이상)가 없습니다.");
+        
+        // 데이터 유효성 검사 강화[cite: 1]
+        if (rawData.length < 200) throw new Error("분석에 필요한 데이터가 부족합니다. (최소 200영업일 필요)");
 
         const data = rawData.sort((a, b) => a.date.localeCompare(b.date));
         const closes = data.map(d => d.close);
@@ -148,19 +147,30 @@ async function analyze(ticker) {
         statusDiv.style.display = 'none';
         resultsDiv.style.display = 'block';
     } catch (err) {
-        showStatus('❌ ' + err.message, true);
+        showStatus('❌ ' + err.message + '<br><small style="font-weight:normal;">프록시 서버 과부하일 수 있습니다. 잠시 후 다시 시도해 주세요.</small>', true);
     }
 }
 
+// 프록시 안정성을 위해 로직 보완[cite: 1]
 async function fetchStockData(ticker) {
     const url = `https://stooq.com/q/d/l/?s=${ticker}.us&i=d`;
+    // AllOrigins의 raw 모드 사용
     const proxy = `https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`;
     
-    const resp = await fetch(proxy);
-    if (!resp.ok) throw new Error("데이터 서버 응답 실패");
-    const text = await resp.text();
-    if (text.includes("<html>") || text.length < 100) throw new Error("존재하지 않는 티커이거나 일시적인 오류입니다.");
-    return text;
+    try {
+        const resp = await fetch(proxy);
+        if (!resp.ok) throw new Error("데이터 서버(Proxy) 응답 실패");
+        
+        const text = await resp.text();
+        
+        // Stooq 데이터가 아닌 에러 페이지가 반환되었는지 확인[cite: 1]
+        if (text.includes("<html>") || text.length < 100) {
+            throw new Error("존재하지 않는 티커이거나 서비스 제한 상태입니다.");
+        }
+        return text;
+    } catch (e) {
+        throw new Error(e.message || "네트워크 연결 오류");
+    }
 }
 
 function parseCSV(csv) {
@@ -169,6 +179,8 @@ function parseCSV(csv) {
     const closeIdx = header.indexOf('close');
     const dateIdx = header.indexOf('date');
     
+    if(closeIdx === -1) throw new Error("CSV 형식 분석 실패");
+
     return lines.slice(1).map(line => {
         const cols = line.split(',');
         return { date: cols[dateIdx], close: parseFloat(cols[closeIdx]) };
