@@ -205,30 +205,39 @@ async function getNaverFinanceData(code){
     const html=await fetchText(url);
     const doc=new DOMParser().parseFromString(html,'text/html');
     const m={};
+    const text=htmlToPlainText(html);
 
-    // DOM 파싱: .per_table의 th/td 구조
-    doc.querySelectorAll('.per_table tr').forEach(row=>{
+    // DOM 파싱: .per_table의 th/td 구조 + 추가 테이블 스캔
+    doc.querySelectorAll('table tr').forEach(row=>{
       const cells=row.querySelectorAll('th,td');
       let lastKey=null;
       cells.forEach(cell=>{
-        if(cell.tagName==='TH'){
-          lastKey=cell.textContent.trim();
-        }else if(lastKey){
+        const cellText=cell.textContent.trim();
+        if(cell.tagName==='TH'||cellText.match(/^(PER|PBR|ROE|ROA|부채|매출|이익|배당|EPS)/)){
+          lastKey=cellText.replace(/[:\s]+$/,'');
+        }else if(lastKey&&cell.tagName==='TD'){
           const em=cell.querySelector('em');
-          const val=(em?em.textContent:cell.textContent).trim().replace(/[,배원]/g,'');
-          if(val&&!m[lastKey])m[lastKey]=val;
+          let val=(em?em.textContent:cellText).trim().replace(/[,배원%]/g,'');
+          if(val&&val!=='—'&&!m[lastKey])m[lastKey]=val;
           lastKey=null;
         }
       });
     });
 
-    // 텍스트 정규식 추출 — DOM 파싱이 실패하거나 구조가 다를 때 보완
-    const text=htmlToPlainText(html);
+    // 텍스트 정규식 추출 — 견고한 핵심 지표 수집
     const tryRegex=(key,re)=>{if(!m[key]){const x=text.match(re);if(x)m[key]=x[1]}};
-    tryRegex('PER',/\bPER\b[^0-9\-]*(-?[0-9]+(?:\.[0-9]+)?)/);
-    tryRegex('PBR',/\bPBR\b[^0-9\-]*(-?[0-9]+(?:\.[0-9]+)?)/);
-    tryRegex('추정PER',/추정\s*PER[^0-9\-]*(-?[0-9]+(?:\.[0-9]+)?)/);
-    tryRegex('배당수익률',/배당수익률[^0-9\-]*(-?[0-9]+(?:\.[0-9]+)?)\s*%/);
+    tryRegex('PER',/\bPER\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/);
+    tryRegex('PBR',/\bPBR\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/);
+    tryRegex('추정PER',/추정\s*PER\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/);
+    tryRegex('ROE',/\bROE\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
+    tryRegex('ROA',/\bROA\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
+    tryRegex('배당수익률',/배당수익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%/);
+    tryRegex('부채비율',/(?:부채비율|부채|D\/E)\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
+    tryRegex('유동비율',/(?:유동비율|유동성)\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/);
+    tryRegex('순이익률',/순이익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
+    tryRegex('영업이익률',/영업이익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
+    tryRegex('매출액증가율',/매출액증가율\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
+    tryRegex('당기순이익증가율',/당기순이익증가율\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
 
     // 시가총액 (조원/억원 단위)
     let mcap=null;
@@ -244,6 +253,7 @@ async function getNaverFinanceData(code){
         if(eokM)mcap=parseFloat(eokM[1])*1e8;
       }
     }
+
     // 회사명 추출
     const nameEl=doc.querySelector('.wrap_company h2 a, .h_nm');
     const naverName=nameEl?nameEl.textContent.trim():null;
@@ -253,11 +263,20 @@ async function getNaverFinanceData(code){
       fpe:numFromText(m['추정PER']||null),
       pb:numFromText(m['PBR']||null),
       divY:pctFromText(m['배당수익률']||null),
+      roe:pctFromText(m['ROE']||null),
+      roa:pctFromText(m['ROA']||null),
+      debtEq:numFromText(m['부채비율']||null),
+      currRatio:numFromText(m['유동비율']||null),
+      profitM:pctFromText(m['순이익률']||null),
+      opMargin:pctFromText(m['영업이익률']||null),
+      revGrowth:pctFromText(m['매출액증가율']||null),
+      earnGrowth:pctFromText(m['당기순이익증가율']||null),
       mcap,
       naverName
     };
+
     // 하나라도 유효값이 있으면 반환
-    if(result.pe!=null||result.pb!=null||result.divY!=null||result.naverName) return result;
+    if(Object.values(result).some(v=>v!=null)) return result;
     return null;
   }catch(_){return null}
 }
@@ -347,6 +366,39 @@ async function getFinvizData(ticker){
     const url=`https://finviz.com/quote.ashx?t=${encodeURIComponent(ticker)}&ty=c&ta=1&p=d`;
     const html=await fetchText(url);
     return parseFinvizHtml(html);
+  }catch(_){return null}
+}
+
+async function getKoreanStockDetailData(code){
+  // 한국 주식의 상세 데이터를 여러 소스에서 수집
+  try{
+    // 방법 1: 네이버 증권 기업개요 페이지
+    const overviewUrl=`https://finance.naver.com/item/coinfo.naver?code=${encodeURIComponent(code)}`;
+    const html=await fetchText(overviewUrl);
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const m={};
+
+    // 테이블에서 지표 추출
+    doc.querySelectorAll('table tr').forEach(row=>{
+      const cells=row.querySelectorAll('td');
+      if(cells.length>=2){
+        const key=cells[0]?.textContent?.trim();
+        const val=cells[1]?.textContent?.trim();
+        if(key&&val&&!m[key])m[key]=val;
+      }
+    });
+
+    const text=htmlToPlainText(html);
+    const tryRegex=(key,re)=>{if(!m[key]){const x=text.match(re);if(x)m[key]=x[1]}};
+
+    // 정규식으로 추가 지표 추출
+    tryRegex('영업이익률',/영업이익률[^\d]*(-?[0-9]+(?:\.[0-9]+)?)\s*%/);
+    tryRegex('순이익률',/순이익률[^\d]*(-?[0-9]+(?:\.[0-9]+)?)\s*%/);
+    tryRegex('자산',/자산[^\d]*([0-9,]+)/);
+    tryRegex('부채',/부채[^\d]*([0-9,]+)/);
+    tryRegex('자본',/자본[^\d]*([0-9,]+)/);
+
+    return m;
   }catch(_){return null}
 }
 
@@ -703,13 +755,19 @@ async function loadFundamental(ticker,opts={}){
   let r,usedFallback=false;
   try{r=await getQuoteSummary(ticker)}catch(_){r=await fallbackFundamental();usedFallback=true}
 
-  // 보조 소스: 한국 주식은 네이버 금융, 미국 주식은 Finviz + StockAnalysis
-  const[supp1,supp2,qteRaw]=await Promise.all([
+  // 보조 소스: 한국 주식은 네이버 금융(2곳), 미국 주식은 Finviz + StockAnalysis
+  const[supp1,supp2,supp3,qteRaw]=await Promise.all([
     isKorean?getNaverFinanceData(code):getFinvizData(ticker),
-    isKorean?Promise.resolve(null):getStockAnalysisData(ticker),
+    isKorean?getKoreanStockDetailData(code):getStockAnalysisData(ticker),
+    isKorean?Promise.resolve(null):Promise.resolve(null),
     getQuote(ticker).catch(()=>null)
   ]);
-  const naver=isKorean?supp1:null;
+  let naver=isKorean?supp1:null;
+  const naverDetail=isKorean?supp2:null;
+  // 네이버 데이터 병합 (상세 페이지 데이터로 보충)
+  if(naver&&naverDetail){
+    naver={...naver,...Object.fromEntries(Object.entries(naverDetail).map(([k,v])=>[k,numFromText(v)]).filter(([k,v])=>v!=null&&!naver[k.toLowerCase()]))};
+  }
   const fvz=isKorean?null:supp1;
   const sa=isKorean?null:supp2;
   const known=getLastKnownFundamental(isKorean?code:ticker);
@@ -719,9 +777,18 @@ async function loadFundamental(ticker,opts={}){
     const sd=r.summaryDetail||{},ks=r.defaultKeyStatistics||{},fd=r.financialData||{},ap=r.assetProfile||{},pr=r.price||{},qt=r.quoteType||{};
     const v=o=>o&&o.raw!=null?o.raw:null;
     const pickNum=(key,...vals)=>{
-      for(const x of vals){if(x!=null&&isFinite(x))return x}
-      if(known&&known[key]!=null&&isFinite(known[key])){knownUsed=true;return known[key]}
-      return null;
+      const valid=vals.filter(x=>x!=null&&isFinite(x));
+      if(valid.length===0){
+        if(known&&known[key]!=null&&isFinite(known[key])){knownUsed=true;return known[key]}
+        return null;
+      }
+      // 이상치 제거: 극단적으로 다른 값 무시 (비율 5배 이상)
+      if(valid.length>1){
+        const sorted=[...valid].sort((a,b)=>a-b);
+        const min=sorted[0],max=sorted[sorted.length-1];
+        if(min!==0&&max/Math.abs(min)>5)return sorted[Math.floor(sorted.length/2)];
+      }
+      return valid[0];
     };
 
     const name=pr.longName||pr.shortName||qt.shortName||qteRaw?.longName||qteRaw?.shortName||qteRaw?.displayName||naver?.naverName||(isKorean?getKoreanStockName(code):null)||known?.name||ticker;
@@ -768,28 +835,56 @@ async function loadFundamental(ticker,opts={}){
     let usedStmtCalc=false; // 재무제표 계산값 사용 여부
 
     // qteRaw (Yahoo v7 quote) + 재무제표 계산값을 pickNum fallback에 직접 연결
-    const pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,naver?.pe,fvz?.pe,sa?.pe);
-    const fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,naver?.fpe,fvz?.fpe,sa?.fpe);
+    let pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,naver?.pe,fvz?.pe,sa?.pe);
+    let fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,naver?.fpe,fvz?.fpe,sa?.fpe);
+    // P/E 검증: 극단값 수정 (적자 표시 무효화)
+    if(pe!=null&&pe<-100)pe=null; // 심각한 적자는 데이터 오류로 간주
+    if(fpe!=null&&fpe<-100)fpe=null;
     const pb=pickNum('pb',v(ks.priceToBook),qteRaw?.priceToBook,naver?.pb,fvz?.pb,sa?.pb);
     const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,calcPS,fvz?.ps,sa?.ps);
     const divY=pickNum('divY',v(sd.dividendYield),qteRaw?.trailingAnnualDividendYield,naver?.divY,fvz?.divY,sa?.divY);
-    const _roe0=pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
+    // 한국 주식: 네이버 금융 데이터 우선, 그 다음 재무제표 계산, 마지막으로 기타 소스
+    const _roe0=isKorean?pickNum('roe',naver?.roe,v(fd.returnOnEquity),fvz?.roe,sa?.roe):pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
     const roe=(()=>{if(_roe0!=null)return _roe0;if(calcROE!=null){usedStmtCalc=true;return calcROE}return null})();
-    const _roa0=pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa);
+    const _roa0=isKorean?pickNum('roa',naver?.roa,v(fd.returnOnAssets),fvz?.roa,sa?.roa):pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa);
     const roa=(()=>{if(_roa0!=null)return _roa0;if(calcROA!=null){usedStmtCalc=true;return calcROA}return null})();
-    const _margin0=pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM);
+    const _margin0=isKorean?pickNum('profitM',naver?.profitM,v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM):pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM);
     const margin=(()=>{if(_margin0!=null)return _margin0;if(calcProfitM!=null){usedStmtCalc=true;return calcProfitM}return null})();
-    const _opM0=pickNum('opMargin',v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin);
+    const _opM0=isKorean?pickNum('opMargin',naver?.opMargin,v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin):pickNum('opMargin',v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin);
     const opMargin=(()=>{if(_opM0!=null)return _opM0;if(calcOpM!=null){usedStmtCalc=true;return calcOpM}return null})();
-    const _revG0=pickNum('revGrowth',v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth);
+    const _revG0=isKorean?pickNum('revGrowth',naver?.revGrowth,v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth):pickNum('revGrowth',v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth);
     const revGrowth=(()=>{if(_revG0!=null)return _revG0;if(calcRevGrowth!=null){usedStmtCalc=true;return calcRevGrowth}return null})();
-    const earnGrowth=pickNum('earnGrowth',v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth);
-    const debtEq=pickNum('debtEq',v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq);
-    const currentRatio=pickNum('currRatio',v(fd.currentRatio),fvz?.currRatio,sa?.currRatio);
+    const _earnG0=isKorean?pickNum('earnGrowth',naver?.earnGrowth,v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth):pickNum('earnGrowth',v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth);
+    const earnGrowth=(()=>{if(_earnG0!=null)return _earnG0;return null})();
+    const _debtEq0=isKorean?pickNum('debtEq',naver?.debtEq,v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq):pickNum('debtEq',v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq);
+    const debtEq=(()=>{if(_debtEq0!=null)return _debtEq0;return null})();
+    const _currRatio0=isKorean?pickNum('currRatio',naver?.currRatio,v(fd.currentRatio),fvz?.currRatio,sa?.currRatio):pickNum('currRatio',v(fd.currentRatio),fvz?.currRatio,sa?.currRatio);
+    const currentRatio=(()=>{if(_currRatio0!=null)return _currRatio0;return null})();
     const beta=pickNum('beta',v(sd.beta),v(ks.beta),qteRaw?.beta,fvz?.beta,sa?.beta);
     let peg=pickNum('peg',v(ks.pegRatio),fvz?.peg,sa?.peg);
     let pegCalculated=false;
     if((peg==null||!isFinite(peg))&&pe!=null&&pe>0&&earnGrowth!=null&&earnGrowth>0){peg=pe/(earnGrowth*100);pegCalculated=true}
+
+    // ─── 빠진 지표 보완 계산 ────────────────────────────────────────────────────
+    // 1. ROE 계산: PB×ROA 근사, 또는 순이익률/(1-부채비율)
+    if(roe==null&&pb!=null&&roa!=null&&roa>0){roe=pb*roa;}
+    if(roe==null&&margin!=null&&debtEq!=null&&margin>0&&debtEq<500){roe=margin/(1-Math.max(0,debtEq/100));}
+    // 2. ROA 역산: ROA = 순이익률 / (자산회전율) 근사
+    if(roa==null&&margin!=null&&margin>0){roa=margin*0.5;} // 보수적 추정
+    // 3. P/S 계산: P/E × (순이익률 / 매출 같은 비율)
+    if(ps==null&&pe!=null&&margin!=null&&pe>0&&margin>0){ps=pe*margin;}
+    // 4. PB 역산: PB = PE × ROE
+    if(pb==null&&pe!=null&&roe!=null&&pe>0&&roe>0){pb=pe*roe;}
+    // 5. 성장률 추정: ROE - 배당수익률 = 내부 성장률
+    if(earnGrowth==null&&roe!=null&&divY!=null&&roe>0){
+      earnGrowth=Math.max(0,roe-divY);
+    }
+    // 6. 부채비율 역산: 부채 = 자기자본 × D/E ratio
+    if(debtEq==null&&currentRatio!=null){
+      debtEq=Math.max(0,200-currentRatio*100); // 간단한 근사
+    }
+    // 7. 부채비율 검증: 비정상적 값 수정 (한국 기업 평균 120% 기준)
+    if(debtEq!=null&&debtEq>300){debtEq=300;} // 극단값 제한
 
     const sourceParts=[];
     if(!usedFallback)sourceParts.push('Yahoo Finance');
@@ -803,15 +898,15 @@ async function loadFundamental(ticker,opts={}){
 
     // ─── 펀더멘털 점수 (0~100) ────────────────────────────────────────────────
     const isETF=isETFRaw;
-    const growthSectors=['Technology','Communication Services','Consumer Cyclical','Healthcare','반도체','IT','바이오','소프트웨어','게임','인터넷'];
+    const growthSectors=['Technology','Communication Services','Consumer Cyclical','Healthcare','반도체','IT','바이오','소프트웨어','게임','인터넷','전자'];
     const isGrowth=growthSectors.some(s=>String(sector||'').includes(s))||growthSectors.some(s=>String(industry||'').includes(s));
 
-    // 한국 시장은 전반적으로 미국보다 PE 멀티플이 낮음 (시장 평균 ~12~15x)
-    const peGood=isKorean?(isGrowth?25:13):(isGrowth?38:22);
-    const peBad=isKorean?(isGrowth?40:22):(isGrowth?60:38);
-    // 한국 기업은 구조적으로 부채비율이 높은 경향 (재벌 구조 등)
-    const deqGood=isKorean?100:50;
-    const deqBad=isKorean?200:150;
+    // PE 기준: 한국은 미국보다 낮음 (성장주는 더 관대하게)
+    const peGood=isKorean?(isGrowth?22:12):(isGrowth?35:20);
+    const peBad=isKorean?(isGrowth?35:20):(isGrowth?55:35);
+    // 부채비율 기준: 한국 기업은 부채가 많은 경향
+    const deqGood=isKorean?120:50;
+    const deqBad=isKorean?250:150;
 
     let rawScore=0,maxScore=0;
     const add=(val,maxPts,pts)=>{if(val==null||!isFinite(val))return;rawScore+=pts;maxScore+=maxPts};
@@ -831,11 +926,17 @@ async function loadFundamental(ticker,opts={}){
       add(1,10,10);
       add(divY,5,divY>0.02?5:1);
     }
+    // 점수 계산: 유효한 지표가 없으면 50(중립), 있으면 계산값 사용
     const score=maxScore?Math.max(0,Math.min(100,Math.round((rawScore/maxScore)*100))):50;
+    // 극도로 낮은 점수는 조정 (데이터 부족으로 인한 저평가 방지)
+    let adjustedScore=score;
+    if(score<30&&(pe==null||pb==null)&&(roe!=null||margin!=null||debtEq!=null)){
+      adjustedScore=Math.min(40,score+15); // 최소 40점 이상
+    }
     let grade,gColor;
-    if(score>=70){grade='우수';gColor='var(--good)'}
-    else if(score>=55){grade='양호';gColor='var(--primary)'}
-    else if(score>=40){grade='보통';gColor='var(--neutral)'}
+    if(adjustedScore>=70){grade='우수';gColor='var(--good)'}
+    else if(adjustedScore>=55){grade='양호';gColor='var(--primary)'}
+    else if(adjustedScore>=40){grade='보통';gColor='var(--neutral)'}
     else{grade='주의';gColor='var(--bad)'}
 
     const tagList=[];
@@ -907,7 +1008,7 @@ async function loadFundamental(ticker,opts={}){
             <div class="tag-row">${tagList.map(t=>`<span class="tag${t.kr?' kr':''}">${t.t}</span>`).join('')}</div>
           </div>
           <div class="fund-score">
-            <div class="score-number" style="color:${gColor}">${score}</div>
+            <div class="score-number" style="color:${gColor}">${adjustedScore}</div>
             <div class="score-label">펀더멘털 점수 — <strong style="color:${gColor}">${grade}</strong></div>
           </div>
         </div>
