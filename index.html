@@ -15,13 +15,15 @@ h1{font-size:26px;letter-spacing:-0.03em}
 .subtitle{color:var(--text-secondary);font-size:13px;margin-top:6px}
 .card{background:var(--surface);border-radius:12px;padding:20px;margin-bottom:14px;border:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,0.02)}
 .search-row{display:flex;gap:10px}
-.ticker-input{flex:1;max-width:190px;padding:12px;border-radius:8px;border:1.5px solid var(--border);font-size:16px;font-weight:700;text-transform:uppercase;outline:none}
+.ticker-input{flex:1;max-width:200px;padding:12px;border-radius:8px;border:1.5px solid var(--border);font-size:16px;font-weight:700;outline:none}
 .ticker-input:focus{border-color:var(--primary)}
 button.primary{background:var(--primary);color:#fff;border:none;padding:12px 24px;border-radius:8px;cursor:pointer;font-weight:700;font-size:15px}
 button.primary:hover{background:var(--primary-hover)}
-.quick-buttons{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.quick-buttons{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center}
 .quick-btn{background:#fff;border:1px solid var(--border);padding:6px 14px;font-size:13px;border-radius:6px;cursor:pointer;color:var(--text-secondary)}
 .quick-btn:hover{border-color:var(--primary);color:var(--primary)}
+.quick-sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+.quick-flag{font-size:14px;opacity:0.7}
 .metrics{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
 @media(min-width:640px){.metrics{grid-template-columns:repeat(4,1fr)}}
 .metric{padding:16px;background:var(--bg);border-radius:10px;text-align:center}
@@ -56,6 +58,7 @@ button.primary:hover{background:var(--primary-hover)}
 .company-meta{font-size:12px;color:var(--text-secondary);margin-top:6px}
 .tag-row{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 .tag{display:inline-flex;align-items:center;border-radius:999px;padding:5px 9px;font-size:12px;font-weight:800;background:rgba(26,77,140,0.08);color:var(--primary)}
+.tag.kr{background:rgba(196,67,67,0.08);color:var(--bad)}
 .fund-score{background:linear-gradient(135deg,rgba(26,77,140,0.10),rgba(45,134,89,0.10));border:1px solid var(--border);border-radius:12px;padding:16px;text-align:center;display:flex;flex-direction:column;justify-content:center}
 .fund-score .score-number{font-size:34px;font-weight:950;letter-spacing:-0.05em}
 .fund-score .score-label{font-size:13px;color:var(--text-secondary);margin-top:2px}
@@ -82,23 +85,29 @@ button.primary:hover{background:var(--primary-hover)}
 <div class="container">
 <header>
 <h1>📈 모멘텀 신호 체크 Pro</h1>
-<div class="subtitle">이평선 + RSI + 거래량 + 기간 수익률 + 펀더멘털</div>
+<div class="subtitle">이평선 + RSI + 거래량 + 기간 수익률 + 펀더멘털 · 미국 &amp; 한국 주식</div>
 </header>
 
 <div class="card">
 <div class="search-row">
-<input id="ticker" class="ticker-input" placeholder="TSM" value="TSM">
+<input id="ticker" class="ticker-input" placeholder="TSM / 005930" value="TSM">
 <button class="primary" onclick="run()">분석하기</button>
 </div>
 <div class="quick-buttons">
+<span class="quick-flag">🇺🇸</span>
 <button class="quick-btn" onclick="setT('TSM')">TSM</button>
 <button class="quick-btn" onclick="setT('NVDA')">NVDA</button>
 <button class="quick-btn" onclick="setT('AAPL')">AAPL</button>
 <button class="quick-btn" onclick="setT('MSFT')">MSFT</button>
-<button class="quick-btn" onclick="setT('AMZN')">AMZN</button>
-<button class="quick-btn" onclick="setT('GOOGL')">GOOGL</button>
 <button class="quick-btn" onclick="setT('QQQ')">QQQ</button>
 <button class="quick-btn" onclick="setT('SPY')">SPY</button>
+<div class="quick-sep"></div>
+<span class="quick-flag">🇰🇷</span>
+<button class="quick-btn" onclick="setT('005930')">삼성전자</button>
+<button class="quick-btn" onclick="setT('000660')">SK하이닉스</button>
+<button class="quick-btn" onclick="setT('035420')">NAVER</button>
+<button class="quick-btn" onclick="setT('005380')">현대차</button>
+<button class="quick-btn" onclick="setT('051910')">LG화학</button>
 </div>
 </div>
 
@@ -126,7 +135,7 @@ button.primary:hover{background:var(--primary-hover)}
 </div>
 
 <div id="status" class="card" style="display:none"></div>
-<div class="footer">데이터 출처: Yahoo Finance(공개 엔드포인트, CORS 프록시 경유) / Stooq 백업</div>
+<div class="footer">데이터 출처: Yahoo Finance(공개 엔드포인트, CORS 프록시 경유) · 네이버 금융(한국 주식 보완) · Stooq(미국 차트 백업)</div>
 </div>
 
 <script>
@@ -163,6 +172,69 @@ async function fetchText(url){
   throw lastErr||new Error('all proxies failed');
 }
 
+// ─── Korean stock utilities ───────────────────────────────────────────────────
+function isKoreanTicker(t){return /^\d{5,6}$/.test(String(t||'').trim())}
+
+async function resolveKoreanTicker(code){
+  for(const sfx of ['.KS','.KQ']){
+    try{
+      const url=`https://query1.finance.yahoo.com/v8/finance/chart/${code}${sfx}?range=5d&interval=1d`;
+      const j=await fetchJSON(url);
+      if(j?.chart?.result?.[0]) return{yahooTicker:code+sfx,market:sfx==='.KS'?'KOSPI':'KOSDAQ'};
+    }catch(_){}
+  }
+  throw new Error('KOSPI/KOSDAQ 모두에서 해당 종목을 찾을 수 없습니다 (코드를 확인해 주세요)');
+}
+
+function fmtPriceKRW(n){
+  if(n==null||!isFinite(n))return'—';
+  return'₩'+Math.round(n).toLocaleString('ko-KR');
+}
+function fmtBigKRW(n){
+  if(n==null||!isFinite(n))return'—';
+  const a=Math.abs(n);
+  if(a>=1e12)return(n/1e12).toFixed(1)+'조원';
+  if(a>=1e8)return Math.round(n/1e8)+'억원';
+  if(a>=1e4)return Math.round(n/1e4)+'만원';
+  return'₩'+Math.round(n).toLocaleString('ko-KR');
+}
+
+async function getNaverFinanceData(code){
+  try{
+    const url=`https://finance.naver.com/item/main.naver?code=${encodeURIComponent(code)}`;
+    const html=await fetchText(url);
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const m={};
+    doc.querySelectorAll('.per_table tr').forEach(row=>{
+      const ths=row.querySelectorAll('th');
+      const ems=row.querySelectorAll('td em');
+      ths.forEach((th,i)=>{if(ems[i])m[th.textContent.trim()]=ems[i].textContent.trim().replace(/,/g,'')});
+    });
+    // 시가총액 (조원/억원 단위)
+    let mcap=null;
+    const mcapEl=doc.querySelector('#_market_sum');
+    if(mcapEl){
+      const txt=mcapEl.textContent.trim().replace(/,/g,'');
+      const joM=txt.match(/([0-9]+(?:\.[0-9]+)?)\s*조\s*([0-9]*)?/);
+      if(joM){
+        mcap=parseFloat(joM[1])*1e12;
+        if(joM[2]&&joM[2].trim())mcap+=parseFloat(joM[2])*1e8;
+      }else{
+        const eokM=txt.match(/([0-9]+)/);
+        if(eokM)mcap=parseFloat(eokM[1])*1e8;
+      }
+    }
+    return{
+      pe:numFromText(m['PER']!=null?m['PER']:null),
+      fpe:numFromText(m['추정PER']!=null?m['추정PER']:null),
+      pb:numFromText(m['PBR']!=null?m['PBR']:null),
+      divY:pctFromText(m['배당수익률']!=null?m['배당수익률']:null),
+      mcap
+    };
+  }catch(_){return null}
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 function setT(t){document.getElementById('ticker').value=t;run()}
 function switchTab(name){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
@@ -183,7 +255,8 @@ async function getChart(ticker){
     }
     return out;
   }catch(e){
-    // Stooq backup
+    // Stooq 백업 — 미국 주식만 지원
+    if(/\.(KS|KQ)$/i.test(ticker)) throw e;
     const sym=ticker.toLowerCase()+'.us';
     const t=await fetchText(`https://stooq.com/q/d/l/?s=${sym}&i=d`);
     const lines=t.trim().split('\n').slice(1);
@@ -227,22 +300,23 @@ async function getFinvizData(ticker){
 
 async function getStockAnalysisData(ticker){
   try{
-    const slug=String(ticker||'').toLowerCase().replace('.', '-');
+    const slug=String(ticker||'').toLowerCase().replace('.','-');
     const url=`https://stockanalysis.com/stocks/${encodeURIComponent(slug)}/statistics/`;
     const html=await fetchText(url);
     return parseStockAnalysisHtml(html);
   }catch(_){return null}
 }
 
-// 모든 실시간 소스가 실패할 때 시가총액만 제공하는 최후 근사값 (as of 2026-05)
+// 모든 실시간 소스가 실패할 때 최후 근사값 (as of 2026-05)
 const KNOWN_MCAP={
   NVDA:3.35e12, AAPL:3.1e12, MSFT:3.0e12, AMZN:2.1e12,
-  GOOGL:2.0e12, META:1.4e12, TSLA:1.0e12, TSM:0.9e12
+  GOOGL:2.0e12, META:1.4e12, TSLA:1.0e12, TSM:0.9e12,
+  // 한국 주식 (KRW 기준)
+  '005930':4.5e14, '000660':1.1e14, '035420':2.5e13,
+  '005380':3.5e13, '051910':3.0e13
 };
 
 const LAST_KNOWN_FUNDAMENTALS={
-  // CORS 프록시가 모두 막힐 때 TSM 화면이 전부 공란이 되는 것을 막는 최후 대체값입니다.
-  // 가능하면 Yahoo/Finviz/StockAnalysis 실시간 스크래핑 값이 먼저 사용됩니다.
   TSM:{
     asOf:'2026-05-06', source:'Finviz/StockAnalysis 스냅샷',
     name:'Taiwan Semiconductor Manufacturing ADR', sector:'Technology', industry:'Semiconductors', country:'Taiwan',
@@ -251,7 +325,7 @@ const LAST_KNOWN_FUNDAMENTALS={
     debtEq:17, currRatio:2.49, revGrowth:0.4049, earnGrowth:0.5155, beta:1.40
   }
 };
-function getLastKnownFundamental(ticker){return LAST_KNOWN_FUNDAMENTALS[String(ticker||'').toUpperCase()]||null}
+function getLastKnownFundamental(key){return LAST_KNOWN_FUNDAMENTALS[String(key||'').toUpperCase()]||null}
 
 const FUND_LABELS=[
   'Forward P/E','P/E','PEG','P/S','P/B','Market Cap','Dividend TTM','Dividend Est.','Dividend %','Dividend Yield',
@@ -267,24 +341,17 @@ function decodeHtmlEntities(s){
     ta.innerHTML=text;
     return ta.value;
   }
-  return text
-    .replace(/&nbsp;/gi,' ')
-    .replace(/&amp;/gi,'&')
-    .replace(/&lt;/gi,'<')
-    .replace(/&gt;/gi,'>')
-    .replace(/&quot;/gi,'"')
-    .replace(/&#39;/gi,"'");
+  return text.replace(/&nbsp;/gi,' ').replace(/&amp;/gi,'&').replace(/&lt;/gi,'<').replace(/&gt;/gi,'>').replace(/&quot;/gi,'"').replace(/&#39;/gi,"'");
 }
 function htmlToPlainText(html){
   return decodeHtmlEntities(String(html||'')
     .replace(/<script[\s\S]*?<\/script>/gi,' ')
     .replace(/<style[\s\S]*?<\/style>/gi,' ')
     .replace(/<[^>]+>/g,' '))
-    .replace(/\s+/g,' ')
-    .trim();
+    .replace(/\s+/g,' ').trim();
 }
 function escapeRegExp(s){return String(s).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')}
-function metricBlocksFromText(text, labels=FUND_LABELS){
+function metricBlocksFromText(text,labels=FUND_LABELS){
   const compact=String(text||'').replace(/\s+/g,' ').trim();
   const matches=[];
   const sorted=[...labels].sort((a,b)=>b.length-a.length);
@@ -297,7 +364,7 @@ function metricBlocksFromText(text, labels=FUND_LABELS){
       matches.push({label,start:m.index+lead,end:m.index+m[0].length});
     }
   }
-  matches.sort((a,b)=>a.start-b.start || (b.end-b.start)-(a.end-a.start));
+  matches.sort((a,b)=>a.start-b.start||(b.end-b.start)-(a.end-a.start));
   const filtered=[];
   for(const m of matches){
     if(filtered.some(x=>m.start>=x.start&&m.end<=x.end)) continue;
@@ -376,7 +443,6 @@ function parseFinvizHtml(html){
     grossM:    pctFromText(firstMetric(m,'Gross Margin')),
     opMargin:  pctFromText(firstMetric(m,'Oper. Margin','Operating Margin')),
     profitM:   pctFromText(firstMetric(m,'Profit Margin')),
-    // Finviz Debt/Eq는 0.17 같은 배율 표기 → 내부 표시는 17(%)로 통일
     debtEq:    debt!=null?debt*100:null,
     currRatio: numFromText(firstMetric(m,'Current Ratio')),
     mcap:      bigFromText(firstMetric(m,'Market Cap')),
@@ -425,20 +491,50 @@ function fmtPct(n,d=1){if(n==null||!isFinite(n))return'—';return(n>=0?'+':'')+
 function fmtBig(n){if(n==null||!isFinite(n))return'—';const a=Math.abs(n);if(a>=1e12)return(n/1e12).toFixed(2)+'T';if(a>=1e9)return(n/1e9).toFixed(2)+'B';if(a>=1e6)return(n/1e6).toFixed(2)+'M';return n.toLocaleString()}
 
 async function run(){
-  const ticker=document.getElementById('ticker').value.trim().toUpperCase();
-  if(!ticker)return;
+  const rawTicker=document.getElementById('ticker').value.trim();
+  if(!rawTicker)return;
+
+  const isKr=isKoreanTicker(rawTicker);
   const status=document.getElementById('status');
-  status.style.display='block';status.innerHTML='<span class="loader"></span> 데이터 불러오는 중...';
+  status.style.display='block';
   document.getElementById('results').style.display='none';
 
-  let chart,spy,qqq;
+  let yahooTicker, displayTicker, ref1Ticker, ref2Ticker, ref1Label, ref2Label, krMarket=null;
+
+  if(isKr){
+    displayTicker=rawTicker;
+    ref1Label='KOSPI'; ref2Label='KOSDAQ';
+    status.innerHTML='<span class="loader"></span> 한국 주식 코드 확인 중...';
+    try{
+      const res=await resolveKoreanTicker(rawTicker);
+      yahooTicker=res.yahooTicker;
+      krMarket=res.market;
+      ref1Ticker='^KS11';
+      ref2Ticker='^KQ11';
+    }catch(e){
+      status.innerHTML='<div class="empty-state">'+e.message+'</div>';return;
+    }
+  }else{
+    displayTicker=rawTicker.toUpperCase();
+    document.getElementById('ticker').value=displayTicker;
+    yahooTicker=displayTicker;
+    ref1Ticker='SPY'; ref2Ticker='QQQ';
+    ref1Label='SPY'; ref2Label='QQQ';
+  }
+
+  status.innerHTML='<span class="loader"></span> 데이터 불러오는 중...';
+
+  let chart,ref1,ref2;
   try{
-    [chart,spy,qqq]=await Promise.all([getChart(ticker),getChart('SPY'),getChart('QQQ')]);
+    [chart,ref1,ref2]=await Promise.all([
+      getChart(yahooTicker),
+      getChart(ref1Ticker).catch(()=>[]),
+      getChart(ref2Ticker).catch(()=>[])
+    ]);
   }catch(e){
     status.innerHTML='<div class="empty-state">차트 데이터 로드 실패: '+e.message+'</div>';return;
   }
 
-  // Technical
   const closes=chart.map(x=>x.c);
   const vols=chart.map(x=>x.v);
   const last=closes[closes.length-1];
@@ -451,14 +547,22 @@ async function run(){
   const volAvg=sma(vols,20);
   const volRatio=volAvg?vols[vols.length-1]/volAvg:null;
 
-  const sLast=spy[spy.length-1].c, qLast=qqq[qqq.length-1].c;
-  const sR3=spy.length>=66?pct(sLast,spy[spy.length-66].c):0;
-  const qR3=qqq.length>=66?pct(qLast,qqq[qqq.length-66].c):0;
-  const rsSpy=r3m!=null?r3m-sR3:null;
-  const rsQqq=r3m!=null?r3m-qR3:null;
+  let rsRef1=null,rsRef2=null;
+  if(ref1.length>=66){
+    const rL=ref1[ref1.length-1].c;
+    const rR3=pct(rL,ref1[ref1.length-66].c);
+    rsRef1=r3m!=null?r3m-rR3:null;
+  }
+  if(ref2.length>=66){
+    const rL=ref2[ref2.length-1].c;
+    const rR3=pct(rL,ref2[ref2.length-66].c);
+    rsRef2=r3m!=null?r3m-rR3:null;
+  }
+
+  const fmtP=n=>isKr?fmtPriceKRW(n):('$'+fmtNum(n));
 
   document.getElementById('metrics').innerHTML=[
-    ['현재가','$'+fmtNum(last),''],
+    ['현재가',fmtP(last),''],
     ['RSI(14)',r?r.toFixed(1):'—',r?(r>70?'과매수':r<30?'과매도':'중립'):''],
     ['3개월 수익률',fmtPct(r3m),''],
     ['거래량 비율',volRatio?volRatio.toFixed(2)+'x':'—','20일 평균 대비'],
@@ -466,22 +570,22 @@ async function run(){
 
   const sigs=[];
   const sig=(ok,bad,txt,val,w=1)=>sigs.push({ok,bad,txt,val,w});
-  sig(ma200&&last>ma200,ma200&&last<ma200,'200일선 위',ma200?'$'+fmtNum(ma200):'—',3);
+  sig(ma200&&last>ma200,ma200&&last<ma200,'200일선 위',ma200?fmtP(ma200):'—',3);
   sig(ma50&&ma200&&ma50>ma200,ma50&&ma200&&ma50<ma200,'골든크로스(50>200)','',3);
-  sig(ma50&&last>ma50,ma50&&last<ma50,'50일선 위',ma50?'$'+fmtNum(ma50):'—',2);
+  sig(ma50&&last>ma50,ma50&&last<ma50,'50일선 위',ma50?fmtP(ma50):'—',2);
   sig(r!=null&&r>=50&&r<70,r!=null&&r<50,'RSI 구간(50~70)',r!=null?r.toFixed(1):'—',2);
   sig(r3m!=null&&r3m>5,r3m!=null&&r3m<0,'3개월 수익률 강세',fmtPct(r3m),2);
   sig(r6m!=null&&r6m>10,r6m!=null&&r6m<0,'6개월 수익률 강세',fmtPct(r6m),2);
   sig(r1y!=null&&r1y>20,r1y!=null&&r1y<0,'1년 수익률 강세',fmtPct(r1y),2);
-  sig(rsSpy!=null&&rsSpy>0,rsSpy!=null&&rsSpy<0,'SPY 대비 강세',fmtPct(rsSpy),2);
-  sig(rsQqq!=null&&rsQqq>0,rsQqq!=null&&rsQqq<0,'QQQ 대비 강세',fmtPct(rsQqq),2);
+  sig(rsRef1!=null&&rsRef1>0,rsRef1!=null&&rsRef1<0,ref1Label+' 대비 강세',fmtPct(rsRef1),2);
+  sig(rsRef2!=null&&rsRef2>0,rsRef2!=null&&rsRef2<0,ref2Label+' 대비 강세',fmtPct(rsRef2),2);
   sig(r1m!=null&&r1m>0,r1m!=null&&r1m<0,'1개월 수익률 양호',fmtPct(r1m),1);
   sig(volRatio!=null&&volRatio>1.2,volRatio!=null&&volRatio<0.7,'거래량 활발',volRatio?volRatio.toFixed(2)+'x':'—',1);
 
   document.getElementById('signals').innerHTML=sigs.map(s=>{
     const cls=s.ok?'signal-good':s.bad?'signal-bad':'signal-neutral';
     const ic=s.ok?'✓':s.bad?'✗':'•';
-    return `<div class="signal ${cls}"><span>${ic} ${s.txt}</span><strong>${s.val}</strong></div>`;
+    return`<div class="signal ${cls}"><span>${ic} ${s.txt}</span><strong>${s.val}</strong></div>`;
   }).join('');
 
   const totalW=sigs.reduce((s,x)=>s+x.w,0);
@@ -493,48 +597,58 @@ async function run(){
   else{verdict='🔻 약세';bg='var(--bad-bg)';}
   document.getElementById('summary').innerHTML=`<div class="summary" style="background:${bg}">${verdict}<div class="summary-sub">가중 점수 ${earnedW} / ${totalW}</div></div>`;
 
-  // Fundamental
-  await loadFundamental(ticker);
+  await loadFundamental(yahooTicker,{isKorean:isKr,code:rawTicker,market:krMarket});
 
   status.style.display='none';
   document.getElementById('results').style.display='block';
 }
 
-async function loadFundamental(ticker){
+async function loadFundamental(ticker,opts={}){
+  const{isKorean=false,code='',market=''}=opts;
   const box=document.getElementById('fund-content');
   box.innerHTML='<div class="card"><span class="loader"></span> 펀더멘털 불러오는 중...</div>';
   const makeRaw=v=>v==null||!isFinite(v)?undefined:{raw:v,fmt:String(v)};
+
   const fallbackFundamental=async()=>{
     let q={};
     try{q=await getQuote(ticker)}catch(_){q={}}
-    const chart=await getChart(ticker);
-    const closes=chart.map(x=>x.c);
-    const last=closes[closes.length-1];
-    const y0=closes[0];
-    const yHigh=Math.max(...closes), yLow=Math.min(...closes);
+    const ch=await getChart(ticker);
+    const cls=ch.map(x=>x.c);
+    const last=cls[cls.length-1];
+    const y0=cls[0];
+    const yHigh=Math.max(...cls),yLow=Math.min(...cls);
     const momentum=last&&y0?pct(last,y0):null;
-    const pseudoScore=Math.max(25,Math.min(75,50+(momentum||0)/2));
-    return {
+    return{
       summaryDetail:{
-        marketCap:makeRaw(q.marketCap), trailingPE:makeRaw(q.trailingPE), forwardPE:makeRaw(q.forwardPE),
-        dividendYield:makeRaw(q.trailingAnnualDividendYield), beta:makeRaw(q.beta), priceToSalesTrailing12Months:makeRaw(q.priceToSalesTrailing12Months)
+        marketCap:makeRaw(q.marketCap),trailingPE:makeRaw(q.trailingPE),forwardPE:makeRaw(q.forwardPE),
+        dividendYield:makeRaw(q.trailingAnnualDividendYield),beta:makeRaw(q.beta),priceToSalesTrailing12Months:makeRaw(q.priceToSalesTrailing12Months)
       },
-      defaultKeyStatistics:{priceToBook:makeRaw(q.priceToBook), trailingPE:makeRaw(q.trailingPE), beta:makeRaw(q.beta)},
+      defaultKeyStatistics:{priceToBook:makeRaw(q.priceToBook),trailingPE:makeRaw(q.trailingPE),beta:makeRaw(q.beta)},
       financialData:{revenueGrowth:makeRaw(momentum!=null?momentum/100:null)},
-      assetProfile:{sector:q.sector, industry:q.industry, country:q.market||''},
-      price:{longName:q.longName||q.shortName||ticker, shortName:q.shortName||ticker, marketCap:makeRaw(q.marketCap)},
+      assetProfile:{sector:q.sector,industry:q.industry,country:q.market||''},
+      price:{longName:q.longName||q.shortName||ticker,shortName:q.shortName||ticker,marketCap:makeRaw(q.marketCap)},
       quoteType:{quoteType:q.quoteType||'EQUITY'},
-      _fallback:{last,yHigh,yLow,momentum,pseudoScore}
+      _fallback:{last,yHigh,yLow,momentum}
     };
   };
-  let r, usedFallback=false;
+
+  let r,usedFallback=false;
   try{r=await getQuoteSummary(ticker)}catch(_){r=await fallbackFundamental();usedFallback=true}
-  // Yahoo에서 빠진 값은 Finviz + StockAnalysis로 보완. 둘 다 실패하면 TSM은 최후 스냅샷 사용.
-  const [fvz,sa,qteRaw]=await Promise.all([getFinvizData(ticker),getStockAnalysisData(ticker),getQuote(ticker).catch(()=>null)]);
-  const known=getLastKnownFundamental(ticker);
+
+  // 보조 소스: 한국 주식은 네이버 금융, 미국 주식은 Finviz + StockAnalysis
+  const[supp1,supp2,qteRaw]=await Promise.all([
+    isKorean?getNaverFinanceData(code):getFinvizData(ticker),
+    isKorean?Promise.resolve(null):getStockAnalysisData(ticker),
+    getQuote(ticker).catch(()=>null)
+  ]);
+  const naver=isKorean?supp1:null;
+  const fvz=isKorean?null:supp1;
+  const sa=isKorean?null:supp2;
+  const known=getLastKnownFundamental(isKorean?code:ticker);
   let knownUsed=false;
+
   try{
-    const sd=r.summaryDetail||{}, ks=r.defaultKeyStatistics||{}, fd=r.financialData||{}, ap=r.assetProfile||{}, pr=r.price||{}, qt=r.quoteType||{};
+    const sd=r.summaryDetail||{},ks=r.defaultKeyStatistics||{},fd=r.financialData||{},ap=r.assetProfile||{},pr=r.price||{},qt=r.quoteType||{};
     const v=o=>o&&o.raw!=null?o.raw:null;
     const pickNum=(key,...vals)=>{
       for(const x of vals){if(x!=null&&isFinite(x))return x}
@@ -545,20 +659,24 @@ async function loadFundamental(ticker){
     const name=pr.longName||pr.shortName||qt.shortName||known?.name||ticker;
     const sector=ap.sector||known?.sector||(qt.quoteType==='ETF'?'ETF':'—');
     const industry=ap.industry||known?.industry||'—';
-    const country=ap.country||known?.country||'';
+    const country=ap.country||known?.country||(isKorean?'Korea':'');
     const employees=ap.fullTimeEmployees;
-    // 주식 수 × 현재가로 시가총액 직접 계산 (모든 API 소스가 빠졌을 때 최후 보루)
+
     const sharesOut=v(ks.sharesOutstanding)||v(ks.impliedSharesOutstanding);
     const mcapCalc=sharesOut&&qteRaw?.regularMarketPrice?sharesOut*qteRaw.regularMarketPrice:null;
-    let mcap=pickNum('mcap',v(sd.marketCap),v(pr.marketCap),fvz?.mcap,sa?.mcap,qteRaw?.marketCap,mcapCalc);
-    // 모든 실시간 소스 실패 시 근사값으로 대체 (API 완전 차단 환경 대응)
+    let mcap=pickNum('mcap',v(sd.marketCap),v(pr.marketCap),naver?.mcap,fvz?.mcap,sa?.mcap,qteRaw?.marketCap,mcapCalc);
     let mcapApprox=false;
-    if(mcap==null){const km=KNOWN_MCAP[String(ticker).toUpperCase()];if(km!=null){mcap=km;mcapApprox=true;}}
-    const pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),fvz?.pe,sa?.pe);
-    const fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),fvz?.fpe,sa?.fpe);
-    const pb=pickNum('pb',v(ks.priceToBook),fvz?.pb,sa?.pb);
+    if(mcap==null){
+      const kmKey=isKorean?code:String(ticker).toUpperCase();
+      const km=KNOWN_MCAP[kmKey];
+      if(km!=null){mcap=km;mcapApprox=true;}
+    }
+
+    const pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),naver?.pe,fvz?.pe,sa?.pe);
+    const fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),naver?.fpe,fvz?.fpe,sa?.fpe);
+    const pb=pickNum('pb',v(ks.priceToBook),naver?.pb,fvz?.pb,sa?.pb);
     const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),fvz?.ps,sa?.ps);
-    const divY=pickNum('divY',v(sd.dividendYield),fvz?.divY,sa?.divY);
+    const divY=pickNum('divY',v(sd.dividendYield),naver?.divY,fvz?.divY,sa?.divY);
     const roe=pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
     const roa=pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa);
     const margin=pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM);
@@ -571,33 +689,42 @@ async function loadFundamental(ticker){
     let peg=pickNum('peg',v(ks.pegRatio),fvz?.peg,sa?.peg);
     let pegCalculated=false;
     if((peg==null||!isFinite(peg))&&pe!=null&&earnGrowth!=null&&earnGrowth>0){peg=pe/(earnGrowth*100);pegCalculated=true}
+
     const sourceParts=[];
     if(!usedFallback)sourceParts.push('Yahoo Finance');
+    if(naver)sourceParts.push('네이버 금융');
     if(fvz)sourceParts.push('Finviz');
     if(sa)sourceParts.push('StockAnalysis');
     if(knownUsed&&known)sourceParts.push(`${known.source}(${known.asOf})`);
     const sourceNote=sourceParts.length?sourceParts.join(' + '):'공개 가격/차트 데이터';
 
-    // scoring (0~100) — 값이 안 들어온 항목 자체를 감점하지 않고, 확보된 항목 기준으로 정규화
+    // ─── 펀더멘털 점수 (0~100) ────────────────────────────────────────────────
     const isETF=qt.quoteType==='ETF';
-    const growthSectors=['Technology','Communication Services','Consumer Cyclical','Healthcare'];
-    const isGrowth=growthSectors.some(s=>String(sector||'').includes(s));
-    const peGood=isGrowth?38:22, peBad=isGrowth?60:38;
-    let rawScore=0, maxScore=0, items=[];
-    const add=(val,maxPts,pts,label)=>{if(val==null||!isFinite(val))return;rawScore+=pts;maxScore+=maxPts;items.push({label,pts,maxPts})};
+    const growthSectors=['Technology','Communication Services','Consumer Cyclical','Healthcare','반도체','IT','바이오','소프트웨어','게임','인터넷'];
+    const isGrowth=growthSectors.some(s=>String(sector||'').includes(s))||growthSectors.some(s=>String(industry||'').includes(s));
+
+    // 한국 시장은 전반적으로 미국보다 PE 멀티플이 낮음 (시장 평균 ~12~15x)
+    const peGood=isKorean?(isGrowth?25:13):(isGrowth?38:22);
+    const peBad=isKorean?(isGrowth?40:22):(isGrowth?60:38);
+    // 한국 기업은 구조적으로 부채비율이 높은 경향 (재벌 구조 등)
+    const deqGood=isKorean?100:50;
+    const deqBad=isKorean?200:150;
+
+    let rawScore=0,maxScore=0;
+    const add=(val,maxPts,pts)=>{if(val==null||!isFinite(val))return;rawScore+=pts;maxScore+=maxPts};
 
     if(!isETF){
-      add(pe,10, pe>0&&pe<peGood?10:pe>0&&pe<peBad?4:pe>0?-4:-8, 'P/E');
-      add(peg,8, peg>0&&peg<1?8:peg>0&&peg<2?4:peg>0?-3:0, 'PEG');
-      add(roe,15, roe>0.20?15:roe>0.10?8:roe>=0?2:-12, 'ROE');
-      add(margin,12, margin>0.20?12:margin>0.05?6:margin>=0?1:-12, '순이익률');
-      add(revGrowth,12, revGrowth>0.15?12:revGrowth>0?5:-10, '매출 성장');
-      add(earnGrowth,10, earnGrowth>0.15?10:earnGrowth>0?4:-8, '이익 성장');
-      add(debtEq,6, debtEq<50?6:debtEq<150?2:-8, '부채비율');
-      add(currentRatio,5, currentRatio>1.5?5:currentRatio>1?2:-5, '유동비율');
+      add(pe,10, pe>0&&pe<peGood?10:pe>0&&pe<peBad?4:pe>0?-4:-8);
+      add(peg,8,  peg>0&&peg<1?8:peg>0&&peg<2?4:peg>0?-3:0);
+      add(roe,15, roe>0.15?15:roe>0.08?8:roe>=0?2:-12);
+      add(margin,12, margin>0.15?12:margin>0.03?6:margin>=0?1:-12);
+      add(revGrowth,12, revGrowth>0.10?12:revGrowth>0?5:-10);
+      add(earnGrowth,10, earnGrowth>0.10?10:earnGrowth>0?4:-8);
+      add(debtEq,6, debtEq<deqGood?6:debtEq<deqBad?2:-8);
+      add(currentRatio,5, currentRatio>1.5?5:currentRatio>1?2:-5);
     }else{
-      add(1,10,10,'ETF — 분산 투자 특성');
-      add(divY,5,divY>0.02?5:1,'배당');
+      add(1,10,10);
+      add(divY,5,divY>0.02?5:1);
     }
     const score=maxScore?Math.max(0,Math.min(100,Math.round((rawScore/maxScore)*100))):50;
     let grade,gColor;
@@ -607,13 +734,18 @@ async function loadFundamental(ticker){
     else{grade='주의';gColor='var(--bad)'}
 
     const tagList=[];
-    if(sector&&sector!=='—')tagList.push(sector);
-    if(industry&&industry!=='—')tagList.push(industry);
-    if(country)tagList.push(country);
-    if(qt.quoteType)tagList.push(qt.quoteType);
+    if(market)tagList.push({t:market,kr:true});
+    if(sector&&sector!=='—')tagList.push({t:sector});
+    if(industry&&industry!=='—')tagList.push({t:industry});
+    if(country&&!isKorean)tagList.push({t:country});
+    if(qt.quoteType&&!isKorean)tagList.push({t:qt.quoteType});
+
+    // 통화 포매터
+    const fmtMcap=n=>isKorean?fmtBigKRW(n):fmtBig(n);
+    const fmtCurr=n=>isKorean?fmtPriceKRW(n):('$'+fmtNum(n));
 
     const cards=[
-      {t:'시가총액',m:fmtBig(mcap)+(mcapApprox?' *':''),d:mcapApprox?'근사값 (API 제한 시 캐시 사용)':'기업 규모'},
+      {t:'시가총액',m:fmtMcap(mcap)+(mcapApprox?' *':''),d:mcapApprox?'근사값 (API 제한)':'기업 규모'},
       {t:'P/E (TTM)',m:pe!=null?fmtNum(pe):'—',d:fpe!=null?'Forward '+fmtNum(fpe):'주가/이익 비율'},
       {t:'PEG',m:peg!=null?fmtNum(peg):'—',d:pegCalculated?'이익 성장률 기반 계산값':'성장 대비 밸류'},
       {t:'P/B',m:pb!=null?fmtNum(pb):'—',d:'주가/순자산'},
@@ -624,26 +756,30 @@ async function loadFundamental(ticker){
     ];
     if(usedFallback&&r._fallback){
       cards.splice(0,0,
-        {t:'현재가',m:'$'+fmtNum(r._fallback.last),d:'공개 가격 데이터 기준'},
-        {t:'1년 범위',m:'$'+fmtNum(r._fallback.yLow)+' ~ $'+fmtNum(r._fallback.yHigh),d:'52주 유사 범위'},
+        {t:'현재가',m:fmtCurr(r._fallback.last),d:'공개 가격 데이터 기준'},
+        {t:'1년 범위',m:fmtCurr(r._fallback.yLow)+' ~ '+fmtCurr(r._fallback.yHigh),d:'52주 유사 범위'},
         {t:'1년 변화',m:fmtPct(r._fallback.momentum),d:'차트 기반 대체 지표'}
       );
     }
 
     const bars=[
-      {l:'매출 성장',v:revGrowth,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,(x+0.1)*333)),cls:x=>x>0.15?'good':x>0?'neutral':'bad'},
-      {l:'이익 성장',v:earnGrowth,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,(x+0.1)*333)),cls:x=>x>0.15?'good':x>0?'neutral':'bad'},
-      {l:'ROE',v:roe,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,x*333)),cls:x=>x>0.20?'good':x>0.10?'neutral':'bad'},
-      {l:'순이익률',v:margin,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,x*333)),cls:x=>x>0.15?'good':x>0?'neutral':'bad'},
-      {l:'부채비율(D/E)',v:debtEq,fmt:x=>x.toFixed(0)+'%',scale:x=>Math.max(0,Math.min(100,100-x/3)),cls:x=>x<50?'good':x<150?'neutral':'bad'},
+      {l:'매출 성장',v:revGrowth,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,(x+0.1)*333)),cls:x=>x>0.10?'good':x>0?'neutral':'bad'},
+      {l:'이익 성장',v:earnGrowth,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,(x+0.1)*333)),cls:x=>x>0.10?'good':x>0?'neutral':'bad'},
+      {l:'ROE',v:roe,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,x*333)),cls:x=>x>0.15?'good':x>0.08?'neutral':'bad'},
+      {l:'순이익률',v:margin,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,x*333)),cls:x=>x>0.10?'good':x>0?'neutral':'bad'},
+      {l:'부채비율(D/E)',v:debtEq,fmt:x=>x.toFixed(0)+'%',scale:x=>Math.max(0,Math.min(100,100-x/(isKorean?4:3))),cls:x=>x<deqGood?'good':x<deqBad?'neutral':'bad'},
     ].filter(b=>b.v!=null&&isFinite(b.v));
 
     const dets=[];
-    if(pe!=null)dets.push({ok:pe>0&&pe<25,bad:pe<0||pe>40,t:`P/E ${fmtNum(pe)}`,v:pe>0&&pe<25?'합리적':pe>40?'고평가 우려':pe<0?'적자':'다소 높음'});
-    if(roe!=null)dets.push({ok:roe>0.15,bad:roe<0,t:`ROE ${(roe*100).toFixed(1)}%`,v:roe>0.20?'매우 우수':roe>0.10?'양호':roe<0?'손실':'평범'});
-    if(revGrowth!=null)dets.push({ok:revGrowth>0.10,bad:revGrowth<0,t:`매출 성장 ${(revGrowth*100).toFixed(1)}%`,v:revGrowth>0.15?'고성장':revGrowth>0?'성장':'역성장'});
-    if(debtEq!=null)dets.push({ok:debtEq<50,bad:debtEq>200,t:`D/E ${debtEq.toFixed(0)}%`,v:debtEq<50?'재무 건전':debtEq<150?'보통':'부채 부담'});
+    if(pe!=null)dets.push({ok:pe>0&&pe<peGood,bad:pe<0||pe>peBad*1.3,t:`P/E ${fmtNum(pe)}`,v:pe>0&&pe<peGood?'합리적':pe>peBad?'고평가 우려':pe<0?'적자':'다소 높음'});
+    if(roe!=null)dets.push({ok:roe>0.15,bad:roe<0,t:`ROE ${(roe*100).toFixed(1)}%`,v:roe>0.15?'우수':roe>0.08?'양호':roe<0?'손실':'평범'});
+    if(revGrowth!=null)dets.push({ok:revGrowth>0.05,bad:revGrowth<0,t:`매출 성장 ${(revGrowth*100).toFixed(1)}%`,v:revGrowth>0.10?'고성장':revGrowth>0?'성장':'역성장'});
+    if(debtEq!=null)dets.push({ok:debtEq<deqGood,bad:debtEq>deqBad*1.5,t:`D/E ${debtEq.toFixed(0)}%`,v:debtEq<deqGood?'재무 건전':debtEq<deqBad?'보통':'부채 부담'});
     if(beta!=null)dets.push({ok:false,bad:false,t:`베타 ${fmtNum(beta)}`,v:beta>1.3?'고변동성':beta<0.7?'저변동성':'시장 수준'});
+
+    const marketNote=isKorean
+      ?'한국 주식은 KRW(₩) 기준으로 표시됩니다. PE/D/E 기준은 한국 시장 평균을 반영해 조정됩니다.'
+      :'ETF/ADR은 소스별 산식 차이로 값이 조금 다를 수 있습니다.';
 
     box.innerHTML=`
       <div class="card">
@@ -651,8 +787,8 @@ async function loadFundamental(ticker){
         <div class="fundamental-hero">
           <div class="company-box">
             <div class="company-name">${name}</div>
-            <div class="company-meta">${ticker}${employees?` · 직원 ${employees.toLocaleString()}명`:''}</div>
-            <div class="tag-row">${tagList.map(t=>`<span class="tag">${t}</span>`).join('')}</div>
+            <div class="company-meta">${isKorean?code:ticker}${employees?` · 직원 ${employees.toLocaleString()}명`:''}</div>
+            <div class="tag-row">${tagList.map(t=>`<span class="tag${t.kr?' kr':''}">${t.t}</span>`).join('')}</div>
           </div>
           <div class="fund-score">
             <div class="score-number" style="color:${gColor}">${score}</div>
@@ -675,15 +811,14 @@ async function loadFundamental(ticker){
         <div class="bar-list">
           ${bars.map(b=>`<div class="bar-row"><div class="bar-label">${b.l}</div><div class="bar-track"><div class="bar-fill ${b.cls(b.v)}" style="width:${b.scale(b.v)}%"></div></div><div class="bar-val">${b.fmt(b.v)}</div></div>`).join('')}
         </div>
-        <div class="mini-note">※ 데이터 소스: ${sourceNote}. ${usedFallback?'Yahoo 상세 API가 제한되어 보강 소스를 우선 사용했습니다.':'Yahoo 상세 API를 우선 사용했습니다.'}${knownUsed&&known?' · 일부 값은 최후 대체 스냅샷입니다.':''} ETF/ADR은 소스별 산식 차이로 값이 조금 다를 수 있습니다.</div>
+        <div class="mini-note">※ 데이터 소스: ${sourceNote}. ${usedFallback?'Yahoo 상세 API가 제한되어 보강 소스를 우선 사용했습니다.':'Yahoo 상세 API를 우선 사용했습니다.'}${knownUsed&&known?' · 일부 값은 최후 대체 스냅샷입니다.':''} ${marketNote}</div>
       </div>`:''}
     `;
   }catch(e){
-    box.innerHTML=`<div class="card"><div class="section-title">펀더멘털 요약</div><div class="fundamental-hero"><div class="company-box"><div class="company-name">${ticker}</div><div class="company-meta">공개 데이터 연결이 제한되어 기본 분석만 표시합니다.</div><div class="tag-row"><span class="tag">대체 모드</span></div></div><div class="fund-score"><div class="score-number" style="color:var(--neutral)">50</div><div class="score-label">펀더멘털 점수 — <strong style="color:var(--neutral)">보통</strong></div></div></div></div><div class="card"><div class="empty-state">현재 무료 공개 소스에서 상세 지표를 찾지 못했습니다. 기술적 분석과 가격 기반 대체 지표를 함께 참고해 주세요.</div></div>`;
+    box.innerHTML=`<div class="card"><div class="section-title">펀더멘털 요약</div><div class="fundamental-hero"><div class="company-box"><div class="company-name">${isKorean?code:ticker}</div><div class="company-meta">공개 데이터 연결이 제한되어 기본 분석만 표시합니다.</div><div class="tag-row">${market?`<span class="tag kr">${market}</span>`:''}<span class="tag">대체 모드</span></div></div><div class="fund-score"><div class="score-number" style="color:var(--neutral)">50</div><div class="score-label">펀더멘털 점수 — <strong style="color:var(--neutral)">보통</strong></div></div></div></div><div class="card"><div class="empty-state">현재 무료 공개 소스에서 상세 지표를 찾지 못했습니다. 기술적 분석과 가격 기반 대체 지표를 함께 참고해 주세요.</div></div>`;
   }
 }
 
-// auto run
 window.addEventListener('load',()=>run());
 </script>
 </body>
