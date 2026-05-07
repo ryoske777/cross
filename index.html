@@ -881,14 +881,14 @@ async function loadFundamental(ticker,opts={}){
     // P/E 검증: 극단값 수정 (적자 표시 무효화)
     if(pe!=null&&pe<-100)pe=null; // 심각한 적자는 데이터 오류로 간주
     if(fpe!=null&&fpe<-100)fpe=null;
-    const pb=pickNum('pb',v(ks.priceToBook),qteRaw?.priceToBook,naver?.pb,fvz?.pb,sa?.pb);
-    const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,naver?.ps,calcPS,fvz?.ps,sa?.ps);
+    let pb=pickNum('pb',v(ks.priceToBook),qteRaw?.priceToBook,naver?.pb,fvz?.pb,sa?.pb);
+    let ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,naver?.ps,calcPS,fvz?.ps,sa?.ps);
     const divY=pickNum('divY',v(sd.dividendYield),qteRaw?.trailingAnnualDividendYield,naver?.divY,fvz?.divY,sa?.divY);
     // 한국 주식: 네이버 금융 데이터 우선, 그 다음 재무제표 계산, 마지막으로 기타 소스
     const _roe0=isKorean?pickNum('roe',naver?.roe,v(fd.returnOnEquity),fvz?.roe,sa?.roe):pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
-    const roe=(()=>{if(_roe0!=null)return _roe0;if(calcROE!=null){usedStmtCalc=true;return calcROE}return null})();
+    let roe=(()=>{if(_roe0!=null)return _roe0;if(calcROE!=null){usedStmtCalc=true;return calcROE}return null})();
     const _roa0=isKorean?pickNum('roa',naver?.roa,v(fd.returnOnAssets),fvz?.roa,sa?.roa):pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa);
-    const roa=(()=>{if(_roa0!=null)return _roa0;if(calcROA!=null){usedStmtCalc=true;return calcROA}return null})();
+    let roa=(()=>{if(_roa0!=null)return _roa0;if(calcROA!=null){usedStmtCalc=true;return calcROA}return null})();
     const _margin0=isKorean?pickNum('profitM',naver?.profitM,v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM):pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM);
     const margin=(()=>{if(_margin0!=null)return _margin0;if(calcProfitM!=null){usedStmtCalc=true;return calcProfitM}return null})();
     const _opM0=isKorean?pickNum('opMargin',naver?.opMargin,v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin):pickNum('opMargin',v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin);
@@ -896,9 +896,9 @@ async function loadFundamental(ticker,opts={}){
     const _revG0=isKorean?pickNum('revGrowth',naver?.revGrowth,v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth):pickNum('revGrowth',v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth);
     const revGrowth=(()=>{if(_revG0!=null)return _revG0;if(calcRevGrowth!=null){usedStmtCalc=true;return calcRevGrowth}return null})();
     const _earnG0=isKorean?pickNum('earnGrowth',naver?.earnGrowth,v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth):pickNum('earnGrowth',v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth);
-    const earnGrowth=(()=>{if(_earnG0!=null)return _earnG0;return null})();
+    let earnGrowth=(()=>{if(_earnG0!=null)return _earnG0;return null})();
     const _debtEq0=isKorean?pickNum('debtEq',naver?.debtEq,v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq):pickNum('debtEq',v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq);
-    const debtEq=(()=>{if(_debtEq0!=null)return _debtEq0;return null})();
+    let debtEq=(()=>{if(_debtEq0!=null)return _debtEq0;return null})();
     const _currRatio0=isKorean?pickNum('currRatio',naver?.currRatio,v(fd.currentRatio),fvz?.currRatio,sa?.currRatio):pickNum('currRatio',v(fd.currentRatio),fvz?.currRatio,sa?.currRatio);
     const currentRatio=(()=>{if(_currRatio0!=null)return _currRatio0;return null})();
     const beta=pickNum('beta',v(sd.beta),v(ks.beta),qteRaw?.beta,fvz?.beta,sa?.beta);
