@@ -205,11 +205,31 @@ async function getNaverFinanceData(code){
     const html=await fetchText(url);
     const doc=new DOMParser().parseFromString(html,'text/html');
     const m={};
+
+    // DOM 파싱: .per_table의 th/td 구조
     doc.querySelectorAll('.per_table tr').forEach(row=>{
-      const ths=row.querySelectorAll('th');
-      const ems=row.querySelectorAll('td em');
-      ths.forEach((th,i)=>{if(ems[i])m[th.textContent.trim()]=ems[i].textContent.trim().replace(/,/g,'')});
+      const cells=row.querySelectorAll('th,td');
+      let lastKey=null;
+      cells.forEach(cell=>{
+        if(cell.tagName==='TH'){
+          lastKey=cell.textContent.trim();
+        }else if(lastKey){
+          const em=cell.querySelector('em');
+          const val=(em?em.textContent:cell.textContent).trim().replace(/[,배원]/g,'');
+          if(val&&!m[lastKey])m[lastKey]=val;
+          lastKey=null;
+        }
+      });
     });
+
+    // 텍스트 정규식 추출 — DOM 파싱이 실패하거나 구조가 다를 때 보완
+    const text=htmlToPlainText(html);
+    const tryRegex=(key,re)=>{if(!m[key]){const x=text.match(re);if(x)m[key]=x[1]}};
+    tryRegex('PER',/\bPER\b[^0-9\-]*(-?[0-9]+(?:\.[0-9]+)?)/);
+    tryRegex('PBR',/\bPBR\b[^0-9\-]*(-?[0-9]+(?:\.[0-9]+)?)/);
+    tryRegex('추정PER',/추정\s*PER[^0-9\-]*(-?[0-9]+(?:\.[0-9]+)?)/);
+    tryRegex('배당수익률',/배당수익률[^0-9\-]*(-?[0-9]+(?:\.[0-9]+)?)\s*%/);
+
     // 시가총액 (조원/억원 단위)
     let mcap=null;
     const mcapEl=doc.querySelector('#_market_sum');
@@ -224,13 +244,21 @@ async function getNaverFinanceData(code){
         if(eokM)mcap=parseFloat(eokM[1])*1e8;
       }
     }
-    return{
-      pe:numFromText(m['PER']!=null?m['PER']:null),
-      fpe:numFromText(m['추정PER']!=null?m['추정PER']:null),
-      pb:numFromText(m['PBR']!=null?m['PBR']:null),
-      divY:pctFromText(m['배당수익률']!=null?m['배당수익률']:null),
-      mcap
+    // 회사명 추출
+    const nameEl=doc.querySelector('.wrap_company h2 a, .h_nm');
+    const naverName=nameEl?nameEl.textContent.trim():null;
+
+    const result={
+      pe:numFromText(m['PER']||null),
+      fpe:numFromText(m['추정PER']||null),
+      pb:numFromText(m['PBR']||null),
+      divY:pctFromText(m['배당수익률']||null),
+      mcap,
+      naverName
     };
+    // 하나라도 유효값이 있으면 반환
+    if(result.pe!=null||result.pb!=null||result.divY!=null||result.naverName) return result;
+    return null;
   }catch(_){return null}
 }
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,7 +294,6 @@ async function getChart(ticker){
 
 async function getQuoteSummary(ticker){
   const full='summaryDetail,defaultKeyStatistics,financialData,assetProfile,price,quoteType';
-  // assetProfile 없는 버전 — 일부 종목에서 assetProfile 요청이 전체 실패를 유발함
   const slim='summaryDetail,defaultKeyStatistics,financialData,price,quoteType';
   const attempts=[
     `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${full}`,
@@ -283,6 +310,19 @@ async function getQuoteSummary(ticker){
       lastErr=new Error(j?.quoteSummary?.error?.description||'no quoteSummary data');
     }catch(e){lastErr=e}
   }
+  // 최후 수단: 모듈을 그룹별로 병렬 요청 후 병합 (하나의 모듈이 전체 요청을 막을 때 대응)
+  const modGroups=['summaryDetail,defaultKeyStatistics','financialData','price,quoteType','assetProfile'];
+  const merged={};
+  await Promise.allSettled(modGroups.flatMap(mods=>
+    ['query1','query2'].map(async host=>{
+      try{
+        const j=await fetchJSON(`https://${host}.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${mods}`);
+        const row=j?.quoteSummary?.result?.[0];
+        if(row) Object.assign(merged,row);
+      }catch(_){}
+    })
+  ));
+  if(Object.keys(merged).length>0) return merged;
   throw lastErr||new Error('no quoteSummary data');
 }
 
@@ -310,6 +350,19 @@ async function getStockAnalysisData(ticker){
     return parseStockAnalysisHtml(html);
   }catch(_){return null}
 }
+
+// 주요 한국 종목 회사명 사전 (Yahoo Finance가 이름을 반환하지 않을 때 사용)
+const KR_NAMES={
+  '005930':'삼성전자','000660':'SK하이닉스','035420':'NAVER','005380':'현대자동차',
+  '051910':'LG화학','035720':'카카오','000270':'기아','373220':'LG에너지솔루션',
+  '207940':'삼성바이오로직스','068270':'셀트리온','105560':'KB금융','055550':'신한지주',
+  '086790':'하나금융지주','003670':'포스코퓨처엠','066570':'LG전자','012330':'현대모비스',
+  '028300':'HLB','096770':'SK이노베이션','034730':'SK','003550':'LG',
+  '009150':'삼성전기','028260':'삼성물산','018260':'삼성SDS','090430':'아모레퍫시픽',
+  '051600':'한국전력','017670':'SK텔레콤','030200':'KT','034020':'두산에너빌리티',
+  '247540':'에코프로비엠','086520':'에코프로','138040':'메리츠금융지주','005490':'POSCO홀딩스'
+};
+function getKoreanStockName(code){return KR_NAMES[String(code||'')]||null}
 
 // 모든 실시간 소스가 실패할 때 최후 근사값 (as of 2026-05)
 const KNOWN_MCAP={
@@ -622,15 +675,18 @@ async function loadFundamental(ticker,opts={}){
     const y0=cls[0];
     const yHigh=Math.max(...cls),yLow=Math.min(...cls);
     const momentum=last&&y0?pct(last,y0):null;
+    // longName이 없으면 null — ticker 문자열을 이름으로 쓰면 이후 name 해석을 막아버림
+    const qLongName=q.longName||q.shortName||null;
     return{
       summaryDetail:{
         marketCap:makeRaw(q.marketCap),trailingPE:makeRaw(q.trailingPE),forwardPE:makeRaw(q.forwardPE),
         dividendYield:makeRaw(q.trailingAnnualDividendYield),beta:makeRaw(q.beta),priceToSalesTrailing12Months:makeRaw(q.priceToSalesTrailing12Months)
       },
       defaultKeyStatistics:{priceToBook:makeRaw(q.priceToBook),trailingPE:makeRaw(q.trailingPE),beta:makeRaw(q.beta)},
-      financialData:{revenueGrowth:makeRaw(momentum!=null?momentum/100:null)},
+      // 차트 모멘텀을 revenueGrowth로 쓰지 않음 — 오해를 유발하는 가짜 지표
+      financialData:{},
       assetProfile:{sector:q.sector,industry:q.industry,country:q.market||''},
-      price:{longName:q.longName||q.shortName||ticker,shortName:q.shortName||ticker,marketCap:makeRaw(q.marketCap)},
+      price:{longName:qLongName,shortName:q.shortName||null,marketCap:makeRaw(q.marketCap)},
       quoteType:{quoteType:q.quoteType||'EQUITY'},
       _fallback:{last,yHigh,yLow,momentum}
     };
@@ -660,7 +716,7 @@ async function loadFundamental(ticker,opts={}){
       return null;
     };
 
-    const name=pr.longName||pr.shortName||qt.shortName||qteRaw?.longName||qteRaw?.shortName||qteRaw?.displayName||known?.name||ticker;
+    const name=pr.longName||pr.shortName||qt.shortName||qteRaw?.longName||qteRaw?.shortName||qteRaw?.displayName||naver?.naverName||(isKorean?getKoreanStockName(code):null)||known?.name||ticker;
     const isETFRaw=qt.quoteType==='ETF'||qteRaw?.quoteType==='ETF';
     const sector=ap.sector||qteRaw?.sector||known?.sector||(isETFRaw?'ETF':'—');
     const industry=ap.industry||qteRaw?.industry||known?.industry||'—';
