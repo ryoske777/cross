@@ -224,20 +224,28 @@ async function getNaverFinanceData(code){
       });
     });
 
-    // 텍스트 정규식 추출 — 견고한 핵심 지표 수집
-    const tryRegex=(key,re)=>{if(!m[key]){const x=text.match(re);if(x)m[key]=x[1]}};
-    tryRegex('PER',/\bPER\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/);
-    tryRegex('PBR',/\bPBR\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/);
-    tryRegex('추정PER',/추정\s*PER\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/);
-    tryRegex('ROE',/\bROE\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
-    tryRegex('ROA',/\bROA\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
-    tryRegex('배당수익률',/배당수익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%/);
-    tryRegex('부채비율',/(?:부채비율|부채|D\/E)\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
-    tryRegex('유동비율',/(?:유동비율|유동성)\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/);
-    tryRegex('순이익률',/순이익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
-    tryRegex('영업이익률',/영업이익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
-    tryRegex('매출액증가율',/매출액증가율\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
-    tryRegex('당기순이익증가율',/당기순이익증가율\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/);
+    // 텍스트 정규식 추출 — 여러 패턴 시도
+    const tryRegex=(key,patterns)=>{
+      if(!m[key]&&Array.isArray(patterns)){
+        for(const re of patterns){
+          const x=text.match(re);
+          if(x){m[key]=x[1];break}
+        }
+      }
+    };
+    tryRegex('PER',[/\bPER\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/,/주가수익비율[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
+    tryRegex('PBR',[/\bPBR\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/,/주가순자산비율[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
+    tryRegex('추정PER',[/추정\s*PER\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/,/Forward\s*(?:PER|P\/E)[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
+    tryRegex('PSR',[/P\/S\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/,/주가매출액비율[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
+    tryRegex('ROE',[/\bROE\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/자기자본이익률[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
+    tryRegex('ROA',[/\bROA\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/자산이익률[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
+    tryRegex('배당수익률',[/배당수익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%/,/배당\s*(?:수익률)?\s*[^\d]*(-?[0-9]+(?:\.[0-9]+)?)\s*%/,/실적배당률[^\d]*(-?[0-9]+(?:\.[0-9]+)?)\s*%/,/배당\s*[^\d%]*?(-?[0-9]+(?:\.[0-9]+)?)\s*%/]);
+    tryRegex('부채비율',[/(?:부채비율|부채도)\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/D\/E\s*[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/,/부채[^\d%]*(-?[0-9]+(?:\.[0-9]+)?)\s*%/]);
+    tryRegex('유동비율',[/(?:유동비율|유동성)\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/]);
+    tryRegex('순이익률',[/순이익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/순이익\s*[^%]*?(-?[0-9]+(?:\.[0-9]+)?)\s*%/]);
+    tryRegex('영업이익률',[/영업이익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/]);
+    tryRegex('매출액증가율',[/매출액증가율\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/매출\s*[^%]*?증가\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%/]);
+    tryRegex('당기순이익증가율',[/당기순이익증가율\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/순이익\s*[^%]*?증가\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%/]);
 
     // 시가총액 (조원/억원 단위)
     let mcap=null;
@@ -262,6 +270,7 @@ async function getNaverFinanceData(code){
       pe:numFromText(m['PER']||null),
       fpe:numFromText(m['추정PER']||null),
       pb:numFromText(m['PBR']||null),
+      ps:numFromText(m['PSR']||null),
       divY:pctFromText(m['배당수익률']||null),
       roe:pctFromText(m['ROE']||null),
       roa:pctFromText(m['ROA']||null),
@@ -824,24 +833,40 @@ async function loadFundamental(ticker,opts={}){
     const stmtOpIncome=v(isLast.operatingIncome)||v(isLast.ebit);
     const stmtSE=v(bsLast.totalStockholderEquity);
     const stmtAssets=v(bsLast.totalAssets);
+    const stmtLiabilities=v(bsLast.totalLiab)||v(bsLast.totalLiabilities);
+    const stmtDebt=v(bsLast.longTermDebt)||v(bsLast.shortTermDebt)||v(bsLast.totalDebt);
     const calcROE=stmtNetIncome!=null&&stmtSE!=null&&stmtSE!==0?stmtNetIncome/stmtSE:null;
     const calcROA=stmtNetIncome!=null&&stmtAssets!=null&&stmtAssets!==0?stmtNetIncome/stmtAssets:null;
     const calcProfitM=stmtNetIncome!=null&&stmtRevenue!=null&&stmtRevenue!==0?stmtNetIncome/stmtRevenue:null;
     const calcGrossM=stmtGrossProfit!=null&&stmtRevenue!=null&&stmtRevenue!==0?stmtGrossProfit/stmtRevenue:null;
     const calcOpM=stmtOpIncome!=null&&stmtRevenue!=null&&stmtRevenue!==0?stmtOpIncome/stmtRevenue:null;
     const calcRevGrowth=stmtRevenue!=null&&stmtPrevRevenue!=null&&stmtPrevRevenue!==0?(stmtRevenue-stmtPrevRevenue)/Math.abs(stmtPrevRevenue):null;
-    // P/S 계산 (주가 × 주식수 / 매출)
-    const calcPS=mcapCalc&&stmtRevenue&&stmtRevenue!==0?mcapCalc/stmtRevenue:null;
+    // P/S 계산 (시가총액 / 매출) — 여러 소스에서 시도
+    let calcPS=null;
+    if(mcapCalc&&stmtRevenue&&stmtRevenue!==0){
+      calcPS=mcapCalc/stmtRevenue;
+    }else if(mcap&&stmtRevenue&&stmtRevenue!==0){
+      calcPS=mcap/stmtRevenue;
+    }
+    // 연간 매출이 없으면 분기 데이터 시도
+    if(calcPS==null){
+      const isQtr=r.incomeStatementHistoryQuarterly?.incomeStatementHistory;
+      const qtrRevenue=isQtr?.[0]?.totalRevenue;
+      if(qtrRevenue&&(mcapCalc||mcap)){
+        const annRevEst=qtrRevenue*4; // 분기 매출 × 4
+        calcPS=(mcapCalc||mcap)/annRevEst;
+      }
+    }
     let usedStmtCalc=false; // 재무제표 계산값 사용 여부
 
     // qteRaw (Yahoo v7 quote) + 재무제표 계산값을 pickNum fallback에 직접 연결
-    let pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,naver?.pe,fvz?.pe,sa?.pe);
-    let fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,naver?.fpe,fvz?.fpe,sa?.fpe);
+    let pe=isKorean?pickNum('pe',naver?.pe,v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,fvz?.pe,sa?.pe):pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,naver?.pe,fvz?.pe,sa?.pe);
+    let fpe=isKorean?pickNum('fpe',naver?.fpe,v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,fvz?.fpe,sa?.fpe):pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,naver?.fpe,fvz?.fpe,sa?.fpe);
     // P/E 검증: 극단값 수정 (적자 표시 무효화)
     if(pe!=null&&pe<-100)pe=null; // 심각한 적자는 데이터 오류로 간주
     if(fpe!=null&&fpe<-100)fpe=null;
     const pb=pickNum('pb',v(ks.priceToBook),qteRaw?.priceToBook,naver?.pb,fvz?.pb,sa?.pb);
-    const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,calcPS,fvz?.ps,sa?.ps);
+    const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,naver?.ps,calcPS,fvz?.ps,sa?.ps);
     const divY=pickNum('divY',v(sd.dividendYield),qteRaw?.trailingAnnualDividendYield,naver?.divY,fvz?.divY,sa?.divY);
     // 한국 주식: 네이버 금융 데이터 우선, 그 다음 재무제표 계산, 마지막으로 기타 소스
     const _roe0=isKorean?pickNum('roe',naver?.roe,v(fd.returnOnEquity),fvz?.roe,sa?.roe):pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
@@ -869,9 +894,9 @@ async function loadFundamental(ticker,opts={}){
     // 1. ROE 계산: PB×ROA 근사, 또는 순이익률/(1-부채비율)
     if(roe==null&&pb!=null&&roa!=null&&roa>0){roe=pb*roa;}
     if(roe==null&&margin!=null&&debtEq!=null&&margin>0&&debtEq<500){roe=margin/(1-Math.max(0,debtEq/100));}
-    // 2. ROA 역산: ROA = 순이익률 / (자산회전율) 근사
+    // 2. ROA 역산: ROA = 순이익률 × 자산회전율 근사
     if(roa==null&&margin!=null&&margin>0){roa=margin*0.5;} // 보수적 추정
-    // 3. P/S 계산: P/E × (순이익률 / 매출 같은 비율)
+    // 3. P/S 계산: P/E × 순이익률
     if(ps==null&&pe!=null&&margin!=null&&pe>0&&margin>0){ps=pe*margin;}
     // 4. PB 역산: PB = PE × ROE
     if(pb==null&&pe!=null&&roe!=null&&pe>0&&roe>0){pb=pe*roe;}
@@ -879,11 +904,20 @@ async function loadFundamental(ticker,opts={}){
     if(earnGrowth==null&&roe!=null&&divY!=null&&roe>0){
       earnGrowth=Math.max(0,roe-divY);
     }
-    // 6. 부채비율 역산: 부채 = 자기자본 × D/E ratio
-    if(debtEq==null&&currentRatio!=null){
-      debtEq=Math.max(0,200-currentRatio*100); // 간단한 근사
+    // 6. ROE 역산 (이미 위에서 계산했으면 스킵)
+    // 7. ROA 역산 (이미 위에서 계산했으면 스킵)
+    // 8. 부채비율은 위의 stmtLiabilities 기반 계산 참고
+    // 6. 부채비율 계산: 재무제표 기반 D/E = 부채/자기자본
+    if(debtEq==null&&stmtLiabilities!=null&&stmtSE!=null&&stmtSE!==0){
+      debtEq=(stmtLiabilities/stmtSE)*100;
+    }else if(debtEq==null&&stmtDebt!=null&&stmtSE!=null&&stmtSE!==0){
+      debtEq=(stmtDebt/stmtSE)*100;
     }
-    // 7. 부채비율 검증: 비정상적 값 수정 (한국 기업 평균 120% 기준)
+    // 7. 부채비율 역산: 유동비율이 있으면 간단한 근사
+    if(debtEq==null&&currentRatio!=null){
+      debtEq=Math.max(0,200-currentRatio*100);
+    }
+    // 8. 부채비율 검증: 비정상적 값 수정 (한국 기업 평균 120% 기준)
     if(debtEq!=null&&debtEq>300){debtEq=300;} // 극단값 제한
 
     const sourceParts=[];
