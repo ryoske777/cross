@@ -90,7 +90,7 @@ button.primary:hover{background:var(--primary-hover)}
 
 <div class="card">
 <div class="search-row">
-<input id="ticker" class="ticker-input" placeholder="TSM / 005930" value="TSM">
+<input id="ticker" class="ticker-input" placeholder="TSM / 005930">
 <button class="primary" onclick="run()">분석하기</button>
 </div>
 <div class="quick-buttons">
@@ -265,13 +265,17 @@ async function getChart(ticker){
 }
 
 async function getQuoteSummary(ticker){
-  const modules='summaryDetail,defaultKeyStatistics,financialData,assetProfile,price,quoteType';
-  const urls=[
-    `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${modules}`,
-    `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${modules}`
+  const full='summaryDetail,defaultKeyStatistics,financialData,assetProfile,price,quoteType';
+  // assetProfile 없는 버전 — 일부 종목에서 assetProfile 요청이 전체 실패를 유발함
+  const slim='summaryDetail,defaultKeyStatistics,financialData,price,quoteType';
+  const attempts=[
+    `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${full}`,
+    `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${full}`,
+    `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${slim}`,
+    `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${slim}`,
   ];
   let lastErr;
-  for(const url of urls){
+  for(const url of attempts){
     try{
       const j=await fetchJSON(url);
       const row=j?.quoteSummary?.result?.[0];
@@ -656,9 +660,10 @@ async function loadFundamental(ticker,opts={}){
       return null;
     };
 
-    const name=pr.longName||pr.shortName||qt.shortName||known?.name||ticker;
-    const sector=ap.sector||known?.sector||(qt.quoteType==='ETF'?'ETF':'—');
-    const industry=ap.industry||known?.industry||'—';
+    const name=pr.longName||pr.shortName||qt.shortName||qteRaw?.longName||qteRaw?.shortName||qteRaw?.displayName||known?.name||ticker;
+    const isETFRaw=qt.quoteType==='ETF'||qteRaw?.quoteType==='ETF';
+    const sector=ap.sector||qteRaw?.sector||known?.sector||(isETFRaw?'ETF':'—');
+    const industry=ap.industry||qteRaw?.industry||known?.industry||'—';
     const country=ap.country||known?.country||(isKorean?'Korea':'');
     const employees=ap.fullTimeEmployees;
 
@@ -672,11 +677,12 @@ async function loadFundamental(ticker,opts={}){
       if(km!=null){mcap=km;mcapApprox=true;}
     }
 
-    const pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),naver?.pe,fvz?.pe,sa?.pe);
-    const fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),naver?.fpe,fvz?.fpe,sa?.fpe);
-    const pb=pickNum('pb',v(ks.priceToBook),naver?.pb,fvz?.pb,sa?.pb);
-    const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),fvz?.ps,sa?.ps);
-    const divY=pickNum('divY',v(sd.dividendYield),naver?.divY,fvz?.divY,sa?.divY);
+    // qteRaw (Yahoo v7 quote) 필드를 직접 fallback으로 추가 — quoteSummary 성공 여부와 무관하게 데이터 보강
+    const pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,naver?.pe,fvz?.pe,sa?.pe);
+    const fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,naver?.fpe,fvz?.fpe,sa?.fpe);
+    const pb=pickNum('pb',v(ks.priceToBook),qteRaw?.priceToBook,naver?.pb,fvz?.pb,sa?.pb);
+    const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,fvz?.ps,sa?.ps);
+    const divY=pickNum('divY',v(sd.dividendYield),qteRaw?.trailingAnnualDividendYield,naver?.divY,fvz?.divY,sa?.divY);
     const roe=pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
     const roa=pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa);
     const margin=pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM);
@@ -685,13 +691,14 @@ async function loadFundamental(ticker,opts={}){
     const earnGrowth=pickNum('earnGrowth',v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth);
     const debtEq=pickNum('debtEq',v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq);
     const currentRatio=pickNum('currRatio',v(fd.currentRatio),fvz?.currRatio,sa?.currRatio);
-    const beta=pickNum('beta',v(sd.beta),v(ks.beta),fvz?.beta,sa?.beta);
+    const beta=pickNum('beta',v(sd.beta),v(ks.beta),qteRaw?.beta,fvz?.beta,sa?.beta);
     let peg=pickNum('peg',v(ks.pegRatio),fvz?.peg,sa?.peg);
     let pegCalculated=false;
     if((peg==null||!isFinite(peg))&&pe!=null&&earnGrowth!=null&&earnGrowth>0){peg=pe/(earnGrowth*100);pegCalculated=true}
 
     const sourceParts=[];
     if(!usedFallback)sourceParts.push('Yahoo Finance');
+    else if(qteRaw)sourceParts.push('Yahoo Finance (기본)');
     if(naver)sourceParts.push('네이버 금융');
     if(fvz)sourceParts.push('Finviz');
     if(sa)sourceParts.push('StockAnalysis');
@@ -699,7 +706,7 @@ async function loadFundamental(ticker,opts={}){
     const sourceNote=sourceParts.length?sourceParts.join(' + '):'공개 가격/차트 데이터';
 
     // ─── 펀더멘털 점수 (0~100) ────────────────────────────────────────────────
-    const isETF=qt.quoteType==='ETF';
+    const isETF=isETFRaw;
     const growthSectors=['Technology','Communication Services','Consumer Cyclical','Healthcare','반도체','IT','바이오','소프트웨어','게임','인터넷'];
     const isGrowth=growthSectors.some(s=>String(sector||'').includes(s))||growthSectors.some(s=>String(industry||'').includes(s));
 
@@ -738,7 +745,8 @@ async function loadFundamental(ticker,opts={}){
     if(sector&&sector!=='—')tagList.push({t:sector});
     if(industry&&industry!=='—')tagList.push({t:industry});
     if(country&&!isKorean)tagList.push({t:country});
-    if(qt.quoteType&&!isKorean)tagList.push({t:qt.quoteType});
+    const displayQuoteType=qt.quoteType||qteRaw?.quoteType;
+    if(displayQuoteType&&!isKorean)tagList.push({t:displayQuoteType});
 
     // 통화 포매터
     const fmtMcap=n=>isKorean?fmtBigKRW(n):fmtBig(n);
@@ -754,7 +762,9 @@ async function loadFundamental(ticker,opts={}){
       {t:'ROE',m:roe!=null?(roe*100).toFixed(1)+'%':'—',d:'자기자본이익률'},
       {t:'순이익률',m:margin!=null?(margin*100).toFixed(1)+'%':'—',d:opMargin!=null?'영업 '+(opMargin*100).toFixed(1)+'%':''},
     ];
-    if(usedFallback&&r._fallback){
+    // 핵심 지표가 하나도 없을 때만 차트 기반 대체 카드 표시
+    const hasFundamentals=pe!=null||pb!=null||ps!=null||roe!=null||margin!=null;
+    if(usedFallback&&r._fallback&&!hasFundamentals){
       cards.splice(0,0,
         {t:'현재가',m:fmtCurr(r._fallback.last),d:'공개 가격 데이터 기준'},
         {t:'1년 범위',m:fmtCurr(r._fallback.yLow)+' ~ '+fmtCurr(r._fallback.yHigh),d:'52주 유사 범위'},
@@ -819,7 +829,7 @@ async function loadFundamental(ticker,opts={}){
   }
 }
 
-window.addEventListener('load',()=>run());
+document.getElementById('ticker').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
 </script>
 </body>
 </html>
