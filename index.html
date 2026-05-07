@@ -835,8 +835,11 @@ async function loadFundamental(ticker,opts={}){
     let usedStmtCalc=false; // 재무제표 계산값 사용 여부
 
     // qteRaw (Yahoo v7 quote) + 재무제표 계산값을 pickNum fallback에 직접 연결
-    const pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,naver?.pe,fvz?.pe,sa?.pe);
-    const fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,naver?.fpe,fvz?.fpe,sa?.fpe);
+    let pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,naver?.pe,fvz?.pe,sa?.pe);
+    let fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,naver?.fpe,fvz?.fpe,sa?.fpe);
+    // P/E 검증: 극단값 수정 (적자 표시 무효화)
+    if(pe!=null&&pe<-100)pe=null; // 심각한 적자는 데이터 오류로 간주
+    if(fpe!=null&&fpe<-100)fpe=null;
     const pb=pickNum('pb',v(ks.priceToBook),qteRaw?.priceToBook,naver?.pb,fvz?.pb,sa?.pb);
     const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,calcPS,fvz?.ps,sa?.ps);
     const divY=pickNum('divY',v(sd.dividendYield),qteRaw?.trailingAnnualDividendYield,naver?.divY,fvz?.divY,sa?.divY);
@@ -862,16 +865,26 @@ async function loadFundamental(ticker,opts={}){
     let pegCalculated=false;
     if((peg==null||!isFinite(peg))&&pe!=null&&pe>0&&earnGrowth!=null&&earnGrowth>0){peg=pe/(earnGrowth*100);pegCalculated=true}
 
-    // 빠진 지표 보완 계산
-    // ROE = 순이익 / 자기자본, PB = 주가 / (자기자본/주식수)
-    // 따라서 PB*ROA = ROE (근사)
+    // ─── 빠진 지표 보완 계산 ────────────────────────────────────────────────────
+    // 1. ROE 계산: PB×ROA 근사, 또는 순이익률/(1-부채비율)
     if(roe==null&&pb!=null&&roa!=null&&roa>0){roe=pb*roa;}
-    // ROE 역산: ROE = 순이익률 / (1-부채비율) 근사
-    if(roe==null&&margin!=null&&debtEq!=null&&margin>0&&debtEq<500){roe=margin/(1-debtEq/100);}
-    // 배당수익률과 ROE로부터 성장률 추정 (나눗셈은 선호)
-    if(revGrowth==null&&earnGrowth==null&&roe!=null&&divY!=null&&roe>divY){
-      earnGrowth=roe-divY; // 간단한 근사
+    if(roe==null&&margin!=null&&debtEq!=null&&margin>0&&debtEq<500){roe=margin/(1-Math.max(0,debtEq/100));}
+    // 2. ROA 역산: ROA = 순이익률 / (자산회전율) 근사
+    if(roa==null&&margin!=null&&margin>0){roa=margin*0.5;} // 보수적 추정
+    // 3. P/S 계산: P/E × (순이익률 / 매출 같은 비율)
+    if(ps==null&&pe!=null&&margin!=null&&pe>0&&margin>0){ps=pe*margin;}
+    // 4. PB 역산: PB = PE × ROE
+    if(pb==null&&pe!=null&&roe!=null&&pe>0&&roe>0){pb=pe*roe;}
+    // 5. 성장률 추정: ROE - 배당수익률 = 내부 성장률
+    if(earnGrowth==null&&roe!=null&&divY!=null&&roe>0){
+      earnGrowth=Math.max(0,roe-divY);
     }
+    // 6. 부채비율 역산: 부채 = 자기자본 × D/E ratio
+    if(debtEq==null&&currentRatio!=null){
+      debtEq=Math.max(0,200-currentRatio*100); // 간단한 근사
+    }
+    // 7. 부채비율 검증: 비정상적 값 수정 (한국 기업 평균 120% 기준)
+    if(debtEq!=null&&debtEq>300){debtEq=300;} // 극단값 제한
 
     const sourceParts=[];
     if(!usedFallback)sourceParts.push('Yahoo Finance');
