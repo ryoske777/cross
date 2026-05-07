@@ -311,7 +311,15 @@ async function getQuoteSummary(ticker){
     }catch(e){lastErr=e}
   }
   // 최후 수단: 모듈을 그룹별로 병렬 요청 후 병합 (하나의 모듈이 전체 요청을 막을 때 대응)
-  const modGroups=['summaryDetail,defaultKeyStatistics','financialData','price,quoteType','assetProfile'];
+  // 손익계산서·재무상태표 포함 — financialData 모듈이 없을 때 직접 계산용
+  const modGroups=[
+    'summaryDetail,defaultKeyStatistics',
+    'financialData',
+    'price,quoteType',
+    'assetProfile',
+    'incomeStatementHistory,incomeStatementHistoryQuarterly',
+    'balanceSheetHistory,balanceSheetHistoryQuarterly',
+  ];
   const merged={};
   await Promise.allSettled(modGroups.flatMap(mods=>
     ['query1','query2'].map(async host=>{
@@ -726,6 +734,8 @@ async function loadFundamental(ticker,opts={}){
     const sharesOut=v(ks.sharesOutstanding)||v(ks.impliedSharesOutstanding);
     const mcapCalc=sharesOut&&qteRaw?.regularMarketPrice?sharesOut*qteRaw.regularMarketPrice:null;
     let mcap=pickNum('mcap',v(sd.marketCap),v(pr.marketCap),naver?.mcap,fvz?.mcap,sa?.mcap,qteRaw?.marketCap,mcapCalc);
+    // 시가총액 이상치 검증 — API가 10배 이상 부풀려진 값을 반환하는 경우 계산값 우선
+    if(mcap&&mcapCalc&&mcapCalc>0){const ratio=mcap/mcapCalc;if(ratio>4||ratio<0.25)mcap=mcapCalc;}
     let mcapApprox=false;
     if(mcap==null){
       const kmKey=isKorean?code:String(ticker).toUpperCase();
@@ -733,28 +743,58 @@ async function loadFundamental(ticker,opts={}){
       if(km!=null){mcap=km;mcapApprox=true;}
     }
 
-    // qteRaw (Yahoo v7 quote) 필드를 직접 fallback으로 추가 — quoteSummary 성공 여부와 무관하게 데이터 보강
+    // ─── 손익계산서·재무상태표에서 직접 계산 ────────────────────────────────────
+    // financialData 모듈이 없거나 불완전할 때 보완 (연간 데이터 기준 — 더 안정적)
+    const isAnn=r.incomeStatementHistory?.incomeStatementHistory;
+    const bsAnn=r.balanceSheetHistory?.balanceSheetHistory;
+    const isLast=isAnn?.[0]||{};
+    const isYear2=isAnn?.[1]||{};
+    const bsLast=bsAnn?.[0]||{};
+    const stmtRevenue=v(isLast.totalRevenue);
+    const stmtPrevRevenue=v(isYear2.totalRevenue);
+    const stmtNetIncome=v(isLast.netIncome);
+    const stmtGrossProfit=v(isLast.grossProfit);
+    const stmtOpIncome=v(isLast.operatingIncome)||v(isLast.ebit);
+    const stmtSE=v(bsLast.totalStockholderEquity);
+    const stmtAssets=v(bsLast.totalAssets);
+    const calcROE=stmtNetIncome!=null&&stmtSE!=null&&stmtSE!==0?stmtNetIncome/stmtSE:null;
+    const calcROA=stmtNetIncome!=null&&stmtAssets!=null&&stmtAssets!==0?stmtNetIncome/stmtAssets:null;
+    const calcProfitM=stmtNetIncome!=null&&stmtRevenue!=null&&stmtRevenue!==0?stmtNetIncome/stmtRevenue:null;
+    const calcGrossM=stmtGrossProfit!=null&&stmtRevenue!=null&&stmtRevenue!==0?stmtGrossProfit/stmtRevenue:null;
+    const calcOpM=stmtOpIncome!=null&&stmtRevenue!=null&&stmtRevenue!==0?stmtOpIncome/stmtRevenue:null;
+    const calcRevGrowth=stmtRevenue!=null&&stmtPrevRevenue!=null&&stmtPrevRevenue!==0?(stmtRevenue-stmtPrevRevenue)/Math.abs(stmtPrevRevenue):null;
+    // P/S 계산 (주가 × 주식수 / 매출)
+    const calcPS=mcapCalc&&stmtRevenue&&stmtRevenue!==0?mcapCalc/stmtRevenue:null;
+    let usedStmtCalc=false; // 재무제표 계산값 사용 여부
+
+    // qteRaw (Yahoo v7 quote) + 재무제표 계산값을 pickNum fallback에 직접 연결
     const pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,naver?.pe,fvz?.pe,sa?.pe);
     const fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,naver?.fpe,fvz?.fpe,sa?.fpe);
     const pb=pickNum('pb',v(ks.priceToBook),qteRaw?.priceToBook,naver?.pb,fvz?.pb,sa?.pb);
-    const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,fvz?.ps,sa?.ps);
+    const ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,calcPS,fvz?.ps,sa?.ps);
     const divY=pickNum('divY',v(sd.dividendYield),qteRaw?.trailingAnnualDividendYield,naver?.divY,fvz?.divY,sa?.divY);
-    const roe=pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
-    const roa=pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa);
-    const margin=pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM);
-    const opMargin=pickNum('opMargin',v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin);
-    const revGrowth=pickNum('revGrowth',v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth);
+    const _roe0=pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
+    const roe=(()=>{if(_roe0!=null)return _roe0;if(calcROE!=null){usedStmtCalc=true;return calcROE}return null})();
+    const _roa0=pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa);
+    const roa=(()=>{if(_roa0!=null)return _roa0;if(calcROA!=null){usedStmtCalc=true;return calcROA}return null})();
+    const _margin0=pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM);
+    const margin=(()=>{if(_margin0!=null)return _margin0;if(calcProfitM!=null){usedStmtCalc=true;return calcProfitM}return null})();
+    const _opM0=pickNum('opMargin',v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin);
+    const opMargin=(()=>{if(_opM0!=null)return _opM0;if(calcOpM!=null){usedStmtCalc=true;return calcOpM}return null})();
+    const _revG0=pickNum('revGrowth',v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth);
+    const revGrowth=(()=>{if(_revG0!=null)return _revG0;if(calcRevGrowth!=null){usedStmtCalc=true;return calcRevGrowth}return null})();
     const earnGrowth=pickNum('earnGrowth',v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth);
     const debtEq=pickNum('debtEq',v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq);
     const currentRatio=pickNum('currRatio',v(fd.currentRatio),fvz?.currRatio,sa?.currRatio);
     const beta=pickNum('beta',v(sd.beta),v(ks.beta),qteRaw?.beta,fvz?.beta,sa?.beta);
     let peg=pickNum('peg',v(ks.pegRatio),fvz?.peg,sa?.peg);
     let pegCalculated=false;
-    if((peg==null||!isFinite(peg))&&pe!=null&&earnGrowth!=null&&earnGrowth>0){peg=pe/(earnGrowth*100);pegCalculated=true}
+    if((peg==null||!isFinite(peg))&&pe!=null&&pe>0&&earnGrowth!=null&&earnGrowth>0){peg=pe/(earnGrowth*100);pegCalculated=true}
 
     const sourceParts=[];
     if(!usedFallback)sourceParts.push('Yahoo Finance');
     else if(qteRaw)sourceParts.push('Yahoo Finance (기본)');
+    if(usedStmtCalc)sourceParts.push('Yahoo 재무제표 계산');
     if(naver)sourceParts.push('네이버 금융');
     if(fvz)sourceParts.push('Finviz');
     if(sa)sourceParts.push('StockAnalysis');
@@ -777,7 +817,9 @@ async function loadFundamental(ticker,opts={}){
     const add=(val,maxPts,pts)=>{if(val==null||!isFinite(val))return;rawScore+=pts;maxScore+=maxPts};
 
     if(!isETF){
-      add(pe,10, pe>0&&pe<peGood?10:pe>0&&pe<peBad?4:pe>0?-4:-8);
+      // P/E가 음수(적자)이면서 Forward P/E가 양수이면 회복 중으로 간주해 과도한 감점 방지
+      const peRecovering=pe!=null&&pe<0&&fpe!=null&&fpe>0&&fpe<peBad;
+      add(pe,10, pe>0&&pe<peGood?10:pe>0&&pe<peBad?4:pe>0?-4:peRecovering?-2:-8);
       add(peg,8,  peg>0&&peg<1?8:peg>0&&peg<2?4:peg>0?-3:0);
       add(roe,15, roe>0.15?15:roe>0.08?8:roe>=0?2:-12);
       add(margin,12, margin>0.15?12:margin>0.03?6:margin>=0?1:-12);
@@ -808,15 +850,22 @@ async function loadFundamental(ticker,opts={}){
     const fmtMcap=n=>isKorean?fmtBigKRW(n):fmtBig(n);
     const fmtCurr=n=>isKorean?fmtPriceKRW(n):('$'+fmtNum(n));
 
+    const grossM=pickNum('grossM',v(fd.grossMargins),calcGrossM);
+    const peDesc=(()=>{
+      if(pe==null)return'주가/이익 비율';
+      if(pe<0&&fpe!=null&&fpe>0)return`Forward ${fmtNum(fpe)} (실적 회복 중)`;
+      if(pe<0)return'적자 (TTM 기준)';
+      return fpe!=null?'Forward '+fmtNum(fpe):'주가/이익 비율';
+    })();
     const cards=[
       {t:'시가총액',m:fmtMcap(mcap)+(mcapApprox?' *':''),d:mcapApprox?'근사값 (API 제한)':'기업 규모'},
-      {t:'P/E (TTM)',m:pe!=null?fmtNum(pe):'—',d:fpe!=null?'Forward '+fmtNum(fpe):'주가/이익 비율'},
+      {t:'P/E (TTM)',m:pe!=null?fmtNum(pe):'—',d:peDesc},
       {t:'PEG',m:peg!=null?fmtNum(peg):'—',d:pegCalculated?'이익 성장률 기반 계산값':'성장 대비 밸류'},
       {t:'P/B',m:pb!=null?fmtNum(pb):'—',d:'주가/순자산'},
       {t:'P/S',m:ps!=null?fmtNum(ps):'—',d:'주가/매출'},
       {t:'배당수익률',m:divY!=null?(divY*100).toFixed(2)+'%':'—',d:'연간 배당'},
-      {t:'ROE',m:roe!=null?(roe*100).toFixed(1)+'%':'—',d:'자기자본이익률'},
-      {t:'순이익률',m:margin!=null?(margin*100).toFixed(1)+'%':'—',d:opMargin!=null?'영업 '+(opMargin*100).toFixed(1)+'%':''},
+      {t:'ROE',m:roe!=null?(roe*100).toFixed(1)+'%':'—',d:roa!=null?'ROA '+(roa*100).toFixed(1)+'%':'자기자본이익률'},
+      {t:'순이익률',m:margin!=null?(margin*100).toFixed(1)+'%':'—',d:opMargin!=null?'영업 '+(opMargin*100).toFixed(1)+'%':grossM!=null?'매출총이익 '+(grossM*100).toFixed(1)+'%':''},
     ];
     // 핵심 지표가 하나도 없을 때만 차트 기반 대체 카드 표시
     const hasFundamentals=pe!=null||pb!=null||ps!=null||roe!=null||margin!=null;
@@ -832,12 +881,13 @@ async function loadFundamental(ticker,opts={}){
       {l:'매출 성장',v:revGrowth,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,(x+0.1)*333)),cls:x=>x>0.10?'good':x>0?'neutral':'bad'},
       {l:'이익 성장',v:earnGrowth,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,(x+0.1)*333)),cls:x=>x>0.10?'good':x>0?'neutral':'bad'},
       {l:'ROE',v:roe,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,x*333)),cls:x=>x>0.15?'good':x>0.08?'neutral':'bad'},
+      {l:'매출총이익률',v:grossM,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,x*200)),cls:x=>x>0.40?'good':x>0.20?'neutral':'bad'},
       {l:'순이익률',v:margin,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,x*333)),cls:x=>x>0.10?'good':x>0?'neutral':'bad'},
       {l:'부채비율(D/E)',v:debtEq,fmt:x=>x.toFixed(0)+'%',scale:x=>Math.max(0,Math.min(100,100-x/(isKorean?4:3))),cls:x=>x<deqGood?'good':x<deqBad?'neutral':'bad'},
     ].filter(b=>b.v!=null&&isFinite(b.v));
 
     const dets=[];
-    if(pe!=null)dets.push({ok:pe>0&&pe<peGood,bad:pe<0||pe>peBad*1.3,t:`P/E ${fmtNum(pe)}`,v:pe>0&&pe<peGood?'합리적':pe>peBad?'고평가 우려':pe<0?'적자':'다소 높음'});
+    if(pe!=null)dets.push({ok:pe>0&&pe<peGood,bad:pe<0&&!(fpe!=null&&fpe>0&&fpe<peBad)||pe>peBad*1.3,t:`P/E ${fmtNum(pe)}`,v:pe>0&&pe<peGood?'합리적':pe>peBad?'고평가 우려':pe<0&&fpe!=null&&fpe>0?'실적 회복 중':pe<0?'적자':'다소 높음'});
     if(roe!=null)dets.push({ok:roe>0.15,bad:roe<0,t:`ROE ${(roe*100).toFixed(1)}%`,v:roe>0.15?'우수':roe>0.08?'양호':roe<0?'손실':'평범'});
     if(revGrowth!=null)dets.push({ok:revGrowth>0.05,bad:revGrowth<0,t:`매출 성장 ${(revGrowth*100).toFixed(1)}%`,v:revGrowth>0.10?'고성장':revGrowth>0?'성장':'역성장'});
     if(debtEq!=null)dets.push({ok:debtEq<deqGood,bad:debtEq>deqBad*1.5,t:`D/E ${debtEq.toFixed(0)}%`,v:debtEq<deqGood?'재무 건전':debtEq<deqBad?'보통':'부채 부담'});
