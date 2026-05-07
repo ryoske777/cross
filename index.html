@@ -233,19 +233,24 @@ async function getNaverFinanceData(code){
         }
       }
     };
-    tryRegex('PER',[/\bPER\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/,/주가수익비율[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
-    tryRegex('PBR',[/\bPBR\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/,/주가순자산비율[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
-    tryRegex('추정PER',[/추정\s*PER\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/,/Forward\s*(?:PER|P\/E)[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
-    tryRegex('PSR',[/P\/S\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/,/주가매출액비율[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
-    tryRegex('ROE',[/\bROE\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/자기자본이익률[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
-    tryRegex('ROA',[/\bROA\b\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/자산이익률[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/]);
-    tryRegex('배당수익률',[/배당수익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%/,/배당\s*(?:수익률)?\s*[^\d]*(-?[0-9]+(?:\.[0-9]+)?)\s*%/,/실적배당률[^\d]*(-?[0-9]+(?:\.[0-9]+)?)\s*%/,/배당\s*[^\d%]*?(-?[0-9]+(?:\.[0-9]+)?)\s*%/]);
-    tryRegex('부채비율',[/(?:부채비율|부채도)\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/D\/E\s*[^\d]*(-?[0-9]+(?:\.[0-9]+)?)/,/부채[^\d%]*(-?[0-9]+(?:\.[0-9]+)?)\s*%/]);
-    tryRegex('유동비율',[/(?:유동비율|유동성)\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)/]);
-    tryRegex('순이익률',[/순이익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/순이익\s*[^%]*?(-?[0-9]+(?:\.[0-9]+)?)\s*%/]);
-    tryRegex('영업이익률',[/영업이익률\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/]);
-    tryRegex('매출액증가율',[/매출액증가율\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/매출\s*[^%]*?증가\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%/]);
-    tryRegex('당기순이익증가율',[/당기순이익증가율\s*(?::|[^\d])*\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%?/,/순이익\s*[^%]*?증가\s*(-?[0-9]+(?:\.[0-9]+)?)\s*%/]);
+    // 엄격한 패턴: 라벨과 값 사이에 공백/콜론/파이프만 허용 (다른 필드 숫자 오인 방지)
+    const SEP='\\s*[:：|]?\\s*';
+    const NUM='(-?[0-9]+(?:\\.[0-9]+)?)';
+    tryRegex('PER',[new RegExp(`(?:^|\\s)PER${SEP}${NUM}\\s*(?:배|$|\\s)`),new RegExp(`주가수익비율${SEP}${NUM}\\s*배`)]);
+    tryRegex('PBR',[new RegExp(`(?:^|\\s)PBR${SEP}${NUM}\\s*(?:배|$|\\s)`),new RegExp(`주가순자산비율${SEP}${NUM}\\s*배`)]);
+    tryRegex('추정PER',[new RegExp(`추정\\s*PER${SEP}${NUM}\\s*(?:배|$|\\s)`),new RegExp(`Forward\\s*(?:PER|P/E)${SEP}${NUM}`)]);
+    tryRegex('PSR',[new RegExp(`(?:^|\\s)P/S${SEP}${NUM}\\s*(?:배|$|\\s)`),new RegExp(`주가매출액비율${SEP}${NUM}`)]);
+    tryRegex('ROE',[new RegExp(`(?:^|\\s)ROE${SEP}${NUM}\\s*%`),new RegExp(`자기자본이익률${SEP}${NUM}\\s*%`)]);
+    tryRegex('ROA',[new RegExp(`(?:^|\\s)ROA${SEP}${NUM}\\s*%`),new RegExp(`총자산이익률${SEP}${NUM}\\s*%`)]);
+    // 배당수익률은 "배당성향(payout ratio)"과 헷갈리지 않도록 매우 엄격하게
+    tryRegex('배당수익률',[new RegExp(`시가배당률${SEP}${NUM}\\s*%`),new RegExp(`배당수익률${SEP}${NUM}\\s*%`)]);
+    tryRegex('부채비율',[new RegExp(`(?:^|\\s)부채비율${SEP}${NUM}\\s*%`)]);
+    tryRegex('유동비율',[new RegExp(`(?:^|\\s)유동비율${SEP}${NUM}\\s*%`)]);
+    // 순이익률/영업이익률은 라벨 직후의 % 값만 (성장률 등 다른 필드와 분리)
+    tryRegex('순이익률',[new RegExp(`(?:^|\\s)순이익률${SEP}${NUM}\\s*%`)]);
+    tryRegex('영업이익률',[new RegExp(`(?:^|\\s)영업이익률${SEP}${NUM}\\s*%`)]);
+    tryRegex('매출액증가율',[new RegExp(`매출액증가율${SEP}${NUM}\\s*%`)]);
+    tryRegex('당기순이익증가율',[new RegExp(`당기순이익증가율${SEP}${NUM}\\s*%`)]);
 
     // 시가총액 (조원/억원 단위)
     let mcap=null;
@@ -807,12 +812,8 @@ async function loadFundamental(ticker,opts={}){
         if(known&&known[key]!=null&&isFinite(known[key])){knownUsed=true;return known[key]}
         return null;
       }
-      // 이상치 제거: 극단적으로 다른 값 무시 (비율 5배 이상)
-      if(valid.length>1){
-        const sorted=[...valid].sort((a,b)=>a-b);
-        const min=sorted[0],max=sorted[sorted.length-1];
-        if(min!==0&&max/Math.abs(min)>5)return sorted[Math.floor(sorted.length/2)];
-      }
+      // 우선순위 순서대로 정렬되어 있으므로 첫 번째 유효값 사용
+      // (잘못된 median 로직은 제거 — length=2일 때 outlier를 골라버리는 버그가 있었음)
       return valid[0];
     };
 
@@ -825,9 +826,13 @@ async function loadFundamental(ticker,opts={}){
 
     const sharesOut=v(ks.sharesOutstanding)||v(ks.impliedSharesOutstanding);
     const mcapCalc=sharesOut&&qteRaw?.regularMarketPrice?sharesOut*qteRaw.regularMarketPrice:null;
-    let mcap=pickNum('mcap',v(sd.marketCap),v(pr.marketCap),naver?.mcap,fvz?.mcap,sa?.mcap,qteRaw?.marketCap,mcapCalc);
-    // 시가총액 이상치 검증 — API가 10배 이상 부풀려진 값을 반환하는 경우 계산값 우선
-    if(mcap&&mcapCalc&&mcapCalc>0){const ratio=mcap/mcapCalc;if(ratio>4||ratio<0.25)mcap=mcapCalc;}
+    // 한국 주식: 네이버의 #_market_sum 값을 가장 신뢰 (조원 단위 직접 표시)
+    // 그 다음 sharesOut*price 계산값 우선 — API 시가총액은 종종 부풀려져 있음
+    let mcap=isKorean
+      ?pickNum('mcap',naver?.mcap,mcapCalc,v(sd.marketCap),v(pr.marketCap),qteRaw?.marketCap,fvz?.mcap,sa?.mcap)
+      :pickNum('mcap',v(sd.marketCap),v(pr.marketCap),mcapCalc,naver?.mcap,fvz?.mcap,sa?.mcap,qteRaw?.marketCap);
+    // 시가총액 이상치 검증 — 계산값과 2배 이상 차이나면 계산값 우선
+    if(mcap&&mcapCalc&&mcapCalc>0){const ratio=mcap/mcapCalc;if(ratio>2||ratio<0.5)mcap=mcapCalc;}
     let mcapApprox=false;
     if(mcap==null){
       const kmKey=isKorean?code:String(ticker).toUpperCase();
@@ -883,24 +888,24 @@ async function loadFundamental(ticker,opts={}){
     if(fpe!=null&&fpe<-100)fpe=null;
     let pb=pickNum('pb',v(ks.priceToBook),qteRaw?.priceToBook,naver?.pb,fvz?.pb,sa?.pb);
     let ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,naver?.ps,calcPS,fvz?.ps,sa?.ps);
-    const divY=pickNum('divY',v(sd.dividendYield),qteRaw?.trailingAnnualDividendYield,naver?.divY,fvz?.divY,sa?.divY);
+    let divY=pickNum('divY',v(sd.dividendYield),qteRaw?.trailingAnnualDividendYield,naver?.divY,fvz?.divY,sa?.divY);
     // 한국 주식: 네이버 금융 데이터 우선, 그 다음 재무제표 계산, 마지막으로 기타 소스
     const _roe0=isKorean?pickNum('roe',naver?.roe,v(fd.returnOnEquity),fvz?.roe,sa?.roe):pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
     let roe=(()=>{if(_roe0!=null)return _roe0;if(calcROE!=null){usedStmtCalc=true;return calcROE}return null})();
     const _roa0=isKorean?pickNum('roa',naver?.roa,v(fd.returnOnAssets),fvz?.roa,sa?.roa):pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa);
     let roa=(()=>{if(_roa0!=null)return _roa0;if(calcROA!=null){usedStmtCalc=true;return calcROA}return null})();
     const _margin0=isKorean?pickNum('profitM',naver?.profitM,v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM):pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM);
-    const margin=(()=>{if(_margin0!=null)return _margin0;if(calcProfitM!=null){usedStmtCalc=true;return calcProfitM}return null})();
+    let margin=(()=>{if(_margin0!=null)return _margin0;if(calcProfitM!=null){usedStmtCalc=true;return calcProfitM}return null})();
     const _opM0=isKorean?pickNum('opMargin',naver?.opMargin,v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin):pickNum('opMargin',v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin);
-    const opMargin=(()=>{if(_opM0!=null)return _opM0;if(calcOpM!=null){usedStmtCalc=true;return calcOpM}return null})();
+    let opMargin=(()=>{if(_opM0!=null)return _opM0;if(calcOpM!=null){usedStmtCalc=true;return calcOpM}return null})();
     const _revG0=isKorean?pickNum('revGrowth',naver?.revGrowth,v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth):pickNum('revGrowth',v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth);
-    const revGrowth=(()=>{if(_revG0!=null)return _revG0;if(calcRevGrowth!=null){usedStmtCalc=true;return calcRevGrowth}return null})();
+    let revGrowth=(()=>{if(_revG0!=null)return _revG0;if(calcRevGrowth!=null){usedStmtCalc=true;return calcRevGrowth}return null})();
     const _earnG0=isKorean?pickNum('earnGrowth',naver?.earnGrowth,v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth):pickNum('earnGrowth',v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth);
     let earnGrowth=(()=>{if(_earnG0!=null)return _earnG0;return null})();
     const _debtEq0=isKorean?pickNum('debtEq',naver?.debtEq,v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq):pickNum('debtEq',v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq);
     let debtEq=(()=>{if(_debtEq0!=null)return _debtEq0;return null})();
     const _currRatio0=isKorean?pickNum('currRatio',naver?.currRatio,v(fd.currentRatio),fvz?.currRatio,sa?.currRatio):pickNum('currRatio',v(fd.currentRatio),fvz?.currRatio,sa?.currRatio);
-    const currentRatio=(()=>{if(_currRatio0!=null)return _currRatio0;return null})();
+    let currentRatio=(()=>{if(_currRatio0!=null)return _currRatio0;return null})();
     const beta=pickNum('beta',v(sd.beta),v(ks.beta),qteRaw?.beta,fvz?.beta,sa?.beta);
     let peg=pickNum('peg',v(ks.pegRatio),fvz?.peg,sa?.peg);
     let pegCalculated=false;
@@ -935,6 +940,27 @@ async function loadFundamental(ticker,opts={}){
     }
     // 8. 부채비율 검증: 비정상적 값 수정 (한국 기업 평균 120% 기준)
     if(debtEq!=null&&debtEq>300){debtEq=300;} // 극단값 제한
+
+    // ─── 최종 값 sanity 검증: 명백히 비현실적인 값은 null로 ─────────────────────
+    // (네이버/Finviz 정규식이 다른 필드 숫자를 잘못 매칭하는 케이스 차단)
+    if(divY!=null&&(divY<0||divY>0.20))divY=null;          // 배당수익률 >20% 비현실적 (배당성향 오인)
+    if(margin!=null&&(margin<-2||margin>1))margin=null;    // 순이익률 -200%~+100% 범위
+    if(opMargin!=null&&(opMargin<-2||opMargin>1))opMargin=null;
+    if(roe!=null&&(roe<-2||roe>3))roe=null;                // ROE -200%~+300% 범위
+    if(roa!=null&&(roa<-1||roa>1))roa=null;
+    if(pe!=null&&(pe>1000||pe<-1000))pe=null;
+    if(fpe!=null&&(fpe>1000||fpe<-1000))fpe=null;
+    if(pb!=null&&(pb<0||pb>100))pb=null;
+    if(ps!=null&&(ps<0||ps>100))ps=null;
+    if(revGrowth!=null&&(revGrowth<-1||revGrowth>10))revGrowth=null;
+    if(earnGrowth!=null&&(earnGrowth<-2||earnGrowth>20))earnGrowth=null;
+    if(currentRatio!=null&&(currentRatio<0||currentRatio>50))currentRatio=null;
+
+    // P/S 추가 fallback: mcap/매출이 가능하면 계산
+    if(ps==null&&mcap!=null&&stmtRevenue!=null&&stmtRevenue>0){
+      const calc=mcap/stmtRevenue;
+      if(calc>0&&calc<100)ps=calc;
+    }
 
     const sourceParts=[];
     if(!usedFallback)sourceParts.push('Yahoo Finance');
