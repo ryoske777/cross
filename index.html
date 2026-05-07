@@ -826,12 +826,9 @@ async function loadFundamental(ticker,opts={}){
 
     const sharesOut=v(ks.sharesOutstanding)||v(ks.impliedSharesOutstanding);
     const mcapCalc=sharesOut&&qteRaw?.regularMarketPrice?sharesOut*qteRaw.regularMarketPrice:null;
-    // 한국 주식: 네이버의 #_market_sum 값을 가장 신뢰 (조원 단위 직접 표시)
-    // 그 다음 sharesOut*price 계산값 우선 — API 시가총액은 종종 부풀려져 있음
-    let mcap=isKorean
-      ?pickNum('mcap',naver?.mcap,mcapCalc,v(sd.marketCap),v(pr.marketCap),qteRaw?.marketCap,fvz?.mcap,sa?.mcap)
-      :pickNum('mcap',v(sd.marketCap),v(pr.marketCap),mcapCalc,naver?.mcap,fvz?.mcap,sa?.mcap,qteRaw?.marketCap);
-    // 시가총액 이상치 검증 — 계산값과 2배 이상 차이나면 계산값 우선
+    // 시가총액: sharesOut*price 계산값이 가장 정확 → Yahoo API → 네이버 순
+    let mcap=pickNum('mcap',mcapCalc,v(sd.marketCap),v(pr.marketCap),qteRaw?.marketCap,naver?.mcap,fvz?.mcap,sa?.mcap);
+    // 계산값이 없을 때만 API 값 사용, API값이 계산값과 2배 이상 차이나면 계산값 우선
     if(mcap&&mcapCalc&&mcapCalc>0){const ratio=mcap/mcapCalc;if(ratio>2||ratio<0.5)mcap=mcapCalc;}
     let mcapApprox=false;
     if(mcap==null){
@@ -881,30 +878,31 @@ async function loadFundamental(ticker,opts={}){
     let usedStmtCalc=false; // 재무제표 계산값 사용 여부
 
     // qteRaw (Yahoo v7 quote) + 재무제표 계산값을 pickNum fallback에 직접 연결
-    let pe=isKorean?pickNum('pe',naver?.pe,v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,fvz?.pe,sa?.pe):pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,naver?.pe,fvz?.pe,sa?.pe);
-    let fpe=isKorean?pickNum('fpe',naver?.fpe,v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,fvz?.fpe,sa?.fpe):pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,naver?.fpe,fvz?.fpe,sa?.fpe);
+    // 한국/미국 모두 Yahoo 우선 — 네이버 스크래핑은 부정확하므로 fallback 전용
+    let pe=pickNum('pe',v(sd.trailingPE),v(ks.trailingPE),qteRaw?.trailingPE,naver?.pe,fvz?.pe,sa?.pe);
+    let fpe=pickNum('fpe',v(sd.forwardPE),v(ks.forwardPE),qteRaw?.forwardPE,naver?.fpe,fvz?.fpe,sa?.fpe);
     // P/E 검증: 극단값 수정 (적자 표시 무효화)
-    if(pe!=null&&pe<-100)pe=null; // 심각한 적자는 데이터 오류로 간주
+    if(pe!=null&&pe<-100)pe=null;
     if(fpe!=null&&fpe<-100)fpe=null;
     let pb=pickNum('pb',v(ks.priceToBook),qteRaw?.priceToBook,naver?.pb,fvz?.pb,sa?.pb);
     let ps=pickNum('ps',v(sd.priceToSalesTrailing12Months),qteRaw?.priceToSalesTrailing12Months,naver?.ps,calcPS,fvz?.ps,sa?.ps);
     let divY=pickNum('divY',v(sd.dividendYield),qteRaw?.trailingAnnualDividendYield,naver?.divY,fvz?.divY,sa?.divY);
-    // 한국 주식: 네이버 금융 데이터 우선, 그 다음 재무제표 계산, 마지막으로 기타 소스
-    const _roe0=isKorean?pickNum('roe',naver?.roe,v(fd.returnOnEquity),fvz?.roe,sa?.roe):pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe);
+    // Yahoo financialData 우선 → 재무제표 계산 → 네이버 fallback
+    const _roe0=pickNum('roe',v(fd.returnOnEquity),fvz?.roe,sa?.roe,naver?.roe);
     let roe=(()=>{if(_roe0!=null)return _roe0;if(calcROE!=null){usedStmtCalc=true;return calcROE}return null})();
-    const _roa0=isKorean?pickNum('roa',naver?.roa,v(fd.returnOnAssets),fvz?.roa,sa?.roa):pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa);
+    const _roa0=pickNum('roa',v(fd.returnOnAssets),fvz?.roa,sa?.roa,naver?.roa);
     let roa=(()=>{if(_roa0!=null)return _roa0;if(calcROA!=null){usedStmtCalc=true;return calcROA}return null})();
-    const _margin0=isKorean?pickNum('profitM',naver?.profitM,v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM):pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM);
+    const _margin0=pickNum('profitM',v(fd.profitMargins),v(ks.profitMargins),fvz?.profitM,sa?.profitM,naver?.profitM);
     let margin=(()=>{if(_margin0!=null)return _margin0;if(calcProfitM!=null){usedStmtCalc=true;return calcProfitM}return null})();
-    const _opM0=isKorean?pickNum('opMargin',naver?.opMargin,v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin):pickNum('opMargin',v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin);
+    const _opM0=pickNum('opMargin',v(fd.operatingMargins),fvz?.opMargin,sa?.opMargin,naver?.opMargin);
     let opMargin=(()=>{if(_opM0!=null)return _opM0;if(calcOpM!=null){usedStmtCalc=true;return calcOpM}return null})();
-    const _revG0=isKorean?pickNum('revGrowth',naver?.revGrowth,v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth):pickNum('revGrowth',v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth);
+    const _revG0=pickNum('revGrowth',v(fd.revenueGrowth),fvz?.revGrowth,sa?.revGrowth,naver?.revGrowth);
     let revGrowth=(()=>{if(_revG0!=null)return _revG0;if(calcRevGrowth!=null){usedStmtCalc=true;return calcRevGrowth}return null})();
-    const _earnG0=isKorean?pickNum('earnGrowth',naver?.earnGrowth,v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth):pickNum('earnGrowth',v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth);
+    const _earnG0=pickNum('earnGrowth',v(fd.earningsGrowth),v(fd.earningsQuarterlyGrowth),fvz?.earnGrowth,sa?.earnGrowth,naver?.earnGrowth);
     let earnGrowth=(()=>{if(_earnG0!=null)return _earnG0;return null})();
-    const _debtEq0=isKorean?pickNum('debtEq',naver?.debtEq,v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq):pickNum('debtEq',v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq);
+    const _debtEq0=pickNum('debtEq',v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq,naver?.debtEq);
     let debtEq=(()=>{if(_debtEq0!=null)return _debtEq0;return null})();
-    const _currRatio0=isKorean?pickNum('currRatio',naver?.currRatio,v(fd.currentRatio),fvz?.currRatio,sa?.currRatio):pickNum('currRatio',v(fd.currentRatio),fvz?.currRatio,sa?.currRatio);
+    const _currRatio0=pickNum('currRatio',v(fd.currentRatio),fvz?.currRatio,sa?.currRatio,naver?.currRatio);
     let currentRatio=(()=>{if(_currRatio0!=null)return _currRatio0;return null})();
     const beta=pickNum('beta',v(sd.beta),v(ks.beta),qteRaw?.beta,fvz?.beta,sa?.beta);
     let peg=pickNum('peg',v(ks.pegRatio),fvz?.peg,sa?.peg);
