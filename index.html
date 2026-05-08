@@ -454,6 +454,7 @@ function getKoreanStockName(code){return KR_NAMES[String(code||'')]||null}
 const KNOWN_MCAP={
   NVDA:3.35e12, AAPL:3.1e12, MSFT:3.0e12, AMZN:2.1e12,
   GOOGL:2.0e12, META:1.4e12, TSLA:1.0e12, TSM:0.9e12,
+  IONQ:8.5e9, RGTI:4.0e9, QBTS:3.0e9, QUBT:1.0e9,
   // 한국 주식 (KRW 기준)
   '005930':4.5e14, '000660':1.1e14, '035420':2.5e13,
   '005380':3.5e13, '051910':3.0e13
@@ -831,11 +832,7 @@ async function loadFundamental(ticker,opts={}){
     // 계산값이 없을 때만 API 값 사용, API값이 계산값과 2배 이상 차이나면 계산값 우선
     if(mcap&&mcapCalc&&mcapCalc>0){const ratio=mcap/mcapCalc;if(ratio>2||ratio<0.5)mcap=mcapCalc;}
     let mcapApprox=false;
-    if(mcap==null){
-      const kmKey=isKorean?code:String(ticker).toUpperCase();
-      const km=KNOWN_MCAP[kmKey];
-      if(km!=null){mcap=km;mcapApprox=true;}
-    }
+    // KNOWN_MCAP / P/S × 매출 등 보강 fallback은 ps · stmtRevenue 계산 이후로 미룬다.
 
     // ─── 손익계산서·재무상태표에서 직접 계산 ────────────────────────────────────
     // financialData 모듈이 없거나 불완전할 때 보완 (연간 데이터 기준 — 더 안정적)
@@ -942,10 +939,12 @@ async function loadFundamental(ticker,opts={}){
     // ─── 최종 값 sanity 검증: 명백히 비현실적인 값은 null로 ─────────────────────
     // (네이버/Finviz 정규식이 다른 필드 숫자를 잘못 매칭하는 케이스 차단)
     if(divY!=null&&(divY<0||divY>0.20))divY=null;          // 배당수익률 >20% 비현실적 (배당성향 오인)
-    if(margin!=null&&(margin<-2||margin>1))margin=null;    // 순이익률 -200%~+100% 범위
-    if(opMargin!=null&&(opMargin<-2||opMargin>1))opMargin=null;
-    if(roe!=null&&(roe<-2||roe>3))roe=null;                // ROE -200%~+300% 범위
-    if(roa!=null&&(roa<-1||roa>1))roa=null;
+    // 적자 성장주(예: IONQ — 매출 대비 손실이 매우 큼)도 진짜 값을 통과시킨다.
+    // 상한은 잘못된 정규식 매칭 차단용으로 좁게 유지하고, 하한만 크게 완화.
+    if(margin!=null&&(margin<-50||margin>1))margin=null;
+    if(opMargin!=null&&(opMargin<-50||opMargin>1))opMargin=null;
+    if(roe!=null&&(roe<-10||roe>3))roe=null;
+    if(roa!=null&&(roa<-10||roa>1))roa=null;
     if(pe!=null&&(pe>1000||pe<-1000))pe=null;
     if(fpe!=null&&(fpe>1000||fpe<-1000))fpe=null;
     if(pb!=null&&(pb<0||pb>100))pb=null;
@@ -958,6 +957,22 @@ async function loadFundamental(ticker,opts={}){
     if(ps==null&&mcap!=null&&stmtRevenue!=null&&stmtRevenue>0){
       const calc=mcap/stmtRevenue;
       if(calc>0&&calc<100)ps=calc;
+    }
+
+    // ─── 시가총액 보강 fallback (직접 소스가 모두 비었을 때) ─────────────────
+    // 1) P/S × 매출 = 시가총액 (대수적으로 정확)
+    if(mcap==null&&ps!=null&&ps>0&&stmtRevenue!=null&&stmtRevenue>0){
+      mcap=ps*stmtRevenue;
+    }
+    // 2) P/E × 순이익 = 시가총액 (흑자 기업만)
+    if(mcap==null&&pe!=null&&pe>0&&stmtNetIncome!=null&&stmtNetIncome>0){
+      mcap=pe*stmtNetIncome;
+    }
+    // 3) 마지막 수단: 알려진 시가총액 스냅샷
+    if(mcap==null){
+      const kmKey=isKorean?code:String(ticker).toUpperCase();
+      const km=KNOWN_MCAP[kmKey];
+      if(km!=null){mcap=km;mcapApprox=true;}
     }
 
     const sourceParts=[];
@@ -1026,6 +1041,10 @@ async function loadFundamental(ticker,opts={}){
     const fmtCurr=n=>isKorean?fmtPriceKRW(n):('$'+fmtNum(n));
 
     const grossM=pickNum('grossM',v(fd.grossMargins),calcGrossM);
+    // 배당 미지급 판정: 다른 펀더멘털은 받아왔는데 배당값이 0/null이면 무배당으로 간주.
+    // (분기 누락 vs 미지급을 구분하기 위해 다른 데이터가 들어왔을 때만 적용)
+    const hasFundamentalSignal=pe!=null||pb!=null||ps!=null||roe!=null||margin!=null||revGrowth!=null||opMargin!=null;
+    const isNoDividend=hasFundamentalSignal&&(divY==null||divY===0);
     const peDesc=(()=>{
       if(pe==null)return'주가/이익 비율';
       if(pe<0&&fpe!=null&&fpe>0)return`Forward ${fmtNum(fpe)} (실적 회복 중)`;
@@ -1038,7 +1057,7 @@ async function loadFundamental(ticker,opts={}){
       {t:'PEG',m:peg!=null?fmtNum(peg):'—',d:pegCalculated?'이익 성장률 기반 계산값':'성장 대비 밸류'},
       {t:'P/B',m:pb!=null?fmtNum(pb):'—',d:'주가/순자산'},
       {t:'P/S',m:ps!=null?fmtNum(ps):'—',d:'주가/매출'},
-      {t:'배당수익률',m:divY!=null?(divY*100).toFixed(2)+'%':'—',d:'연간 배당'},
+      {t:'배당수익률',m:divY!=null&&divY>0?(divY*100).toFixed(2)+'%':isNoDividend?'무배당':'—',d:isNoDividend?'배당 미지급 종목':'연간 배당'},
       {t:'ROE',m:roe!=null?(roe*100).toFixed(1)+'%':'—',d:roa!=null?'ROA '+(roa*100).toFixed(1)+'%':'자기자본이익률'},
       {t:'순이익률',m:margin!=null?(margin*100).toFixed(1)+'%':'—',d:opMargin!=null?'영업 '+(opMargin*100).toFixed(1)+'%':grossM!=null?'매출총이익 '+(grossM*100).toFixed(1)+'%':''},
     ];
