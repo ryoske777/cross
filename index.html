@@ -68,17 +68,50 @@ button.primary:hover{background:var(--primary-hover)}
 .fund-title{font-size:12px;color:var(--text-secondary);font-weight:800;margin-bottom:8px}
 .fund-main{font-size:20px;font-weight:950;letter-spacing:-0.03em}
 .fund-desc{font-size:11.5px;color:var(--text-secondary);margin-top:6px;line-height:1.45}
-.bar-list{display:grid;gap:14px}
-.bar-row{display:grid;grid-template-columns:120px 1fr 70px;gap:10px;align-items:center;font-size:13px}
-.bar-label{color:var(--text-secondary);font-weight:800}
-.bar-track{height:10px;background:rgba(0,0,0,0.07);border-radius:999px;overflow:hidden}
-.bar-fill{height:100%;border-radius:999px;background:var(--primary);width:0%;transition:width .6s}
-.bar-fill.good{background:var(--good)}
-.bar-fill.neutral{background:var(--neutral)}
-.bar-fill.bad{background:var(--bad)}
-.bar-val{text-align:right;font-weight:800;font-size:12.5px}
+.bar-list{display:grid;gap:18px}
+.bar-row{display:grid;grid-template-columns:1fr;gap:6px;font-size:13px}
+.bar-head{display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap}
+.bar-label{color:var(--text-secondary);font-weight:800;display:inline-flex;align-items:center;gap:6px}
+.bar-sub{color:var(--text-tertiary);font-weight:500;font-size:11.5px;margin-left:2px}
+.bar-rating{display:flex;align-items:center;gap:8px}
+.bar-val{font-weight:850;font-size:14.5px;letter-spacing:-.01em;color:var(--text)}
+.bar-verdict{font-size:11px;font-weight:800;padding:2px 9px;border-radius:999px;white-space:nowrap}
+.bar-verdict.good{background:var(--good-bg);color:var(--good)}
+.bar-verdict.neutral{background:var(--neutral-bg);color:var(--neutral)}
+.bar-verdict.bad{background:var(--bad-bg);color:var(--bad)}
+.bar-track{position:relative;height:14px;background:rgba(0,0,0,0.04);border-radius:999px;overflow:hidden}
+.bar-zones{position:absolute;inset:0;display:flex;opacity:.22}
+.bar-zones .zone{height:100%}
+.bar-zones .zone.zone-bad{background:var(--bad)}
+.bar-zones .zone.zone-neutral{background:var(--neutral)}
+.bar-zones .zone.zone-good{background:var(--good)}
+.bar-marker{position:absolute;top:-3px;bottom:-3px;width:4px;background:var(--text);border-radius:3px;transform:translateX(-50%);box-shadow:0 0 0 2px rgba(255,255,255,.95);transition:left .6s}
+.bar-hint{font-size:11px;color:var(--text-tertiary);line-height:1.5;display:flex;flex-wrap:wrap;gap:4px 10px}
+.bar-hint span{white-space:nowrap}
 .mini-note{margin-top:12px;color:var(--text-tertiary);font-size:12px;line-height:1.55}
 .empty-state{background:var(--neutral-bg);color:var(--neutral);border-radius:12px;padding:18px;font-size:14px;line-height:1.6}
+
+/* Recent ticker history */
+.recent-row{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:12px;padding-top:12px;border-top:1px dashed var(--border)}
+.recent-label{font-size:12px;color:var(--text-tertiary);font-weight:700}
+.recent-chip{display:inline-flex;align-items:center;gap:0;background:#fff;border:1px solid var(--border);padding:5px 4px 5px 11px;font-size:12.5px;border-radius:999px;cursor:pointer;color:var(--text-secondary);font-weight:600;font-family:inherit}
+.recent-chip:hover{border-color:var(--primary);color:var(--primary)}
+.recent-chip .recent-chip-text{padding-right:6px}
+.recent-x{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;border-radius:50%;background:rgba(0,0,0,.04);color:var(--text-tertiary);font-size:13px;line-height:1;margin-left:0;border:none;cursor:pointer;font-family:inherit;padding:0}
+.recent-x:hover{background:var(--bad);color:#fff}
+.recent-clear{background:none;border:none;color:var(--text-tertiary);font-size:11.5px;padding:4px 6px;cursor:pointer;margin-left:auto;font-family:inherit}
+.recent-clear:hover{color:var(--bad)}
+
+/* Info tooltip system (cross-platform: hover + tap) */
+.info-tip{display:inline-flex;align-items:center;justify-content:center;width:15px;height:15px;border-radius:50%;background:rgba(0,0,0,.08);color:var(--text-secondary);font-size:10px;font-weight:800;cursor:help;user-select:none;border:none;padding:0;margin:0 0 0 4px;font-family:inherit;line-height:1;vertical-align:1px;flex-shrink:0}
+.info-tip:hover,.info-tip:focus-visible{background:var(--primary);color:#fff;outline:none}
+.tooltip-popover{position:absolute;z-index:1000;max-width:min(320px,calc(100vw - 16px));background:#1f1f1d;color:#fff;font-size:12.5px;line-height:1.65;padding:11px 13px;border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.18);white-space:pre-line;word-break:keep-all;pointer-events:none;opacity:0;visibility:hidden;transition:opacity .12s ease;top:0;left:0}
+.tooltip-popover.show{opacity:1;visibility:visible}
+
+/* Card sub-explanation for beginners */
+.fund-sub{font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.5;border-top:1px dashed rgba(0,0,0,.06);padding-top:6px}
+.fund-title{display:flex;align-items:center}
+.signal span{display:inline-flex;align-items:center;gap:6px}
 </style>
 </head>
 <body>
@@ -90,7 +123,7 @@ button.primary:hover{background:var(--primary-hover)}
 
 <div class="card">
 <div class="search-row">
-<input id="ticker" class="ticker-input" placeholder="TSM / 005930">
+<input id="ticker" class="ticker-input" placeholder="티커 입력 (예: AAPL, 005930)">
 <button class="primary" onclick="run()">분석하기</button>
 </div>
 <div class="quick-buttons">
@@ -109,6 +142,7 @@ button.primary:hover{background:var(--primary-hover)}
 <button class="quick-btn" onclick="setT('005380')">현대차</button>
 <button class="quick-btn" onclick="setT('051910')">LG화학</button>
 </div>
+<div id="recent" class="recent-row" style="display:none"></div>
 </div>
 
 <div id="results" style="display:none">
@@ -295,6 +329,154 @@ async function getNaverFinanceData(code){
   }catch(_){return null}
 }
 // ─────────────────────────────────────────────────────────────────────────────
+
+// ─── 용어 사전 (툴팁 + 카드 보조 설명용) ──────────────────────────────────────
+const GLOSSARY={
+  mcap:{short:'회사 전체 시장 가치',long:'시가총액 = 주가 × 발행주식수.\n시장이 평가하는 회사 전체 값.\n\n· 100조원 이상 — 초대형주\n· 1조 ~ 100조 — 대·중형주\n· 1조 미만 — 소형주'},
+  pe:{short:'주가가 1년 이익의 몇 배',long:'P/E (주가수익비율) = 주가 ÷ 1주당 순이익.\n낮을수록 이익 대비 싸게 거래되는 셈.\n\n· 미국 평균: 약 20배\n· 한국 평균: 약 12배\n· 음수 또는 매우 큰 값: 적자/이익 미미\n\n같은 업종끼리 비교해야 의미가 있어요.'},
+  peg:{short:'성장률까지 반영한 P/E',long:'PEG = P/E ÷ 연간 이익성장률.\n빠르게 성장하면 높은 P/E도 정당화될 수 있어 그 부분을 보정한 지표.\n\n· 1 미만 — 성장 대비 저평가\n· 1 ~ 2 — 적정\n· 2 초과 — 고평가 가능성'},
+  pb:{short:'주가가 순자산의 몇 배',long:'P/B (주가순자산비율) = 주가 ÷ 1주당 순자산.\n청산 가치 대비 얼마에 거래되는지.\n\n· 1 미만 — 순자산보다 싸게 거래(저평가 신호)\n· 3 이상 — 자산 대비 비쌈\n\n금융주는 낮게, 기술주는 높게 형성되는 경향.'},
+  ps:{short:'주가가 매출의 몇 배',long:'P/S (주가매출액비율) = 시가총액 ÷ 매출.\n적자 기업도 평가 가능한 지표.\n\n· 1 ~ 3 — 일반적\n· 10 이상 — 고성장주(SaaS·AI 등)에서 흔함\n· 50 이상 — 매우 비쌈, 미래 기대 큼'},
+  divY:{short:'주가 대비 1년 배당 비율',long:'배당수익률 = 1년 배당금 ÷ 주가.\n주가가 그대로일 때 1년에 받는 현금 수익률.\n\n· 5% 이상 — 고배당주\n· 2 ~ 4% — 평균적\n· 0% — 배당 미지급(성장 재투자형)'},
+  roe:{short:'자기자본을 굴려 만드는 이익률',long:'ROE (자기자본이익률) = 순이익 ÷ 자기자본.\n주주가 맡긴 돈으로 1년에 얼마를 번지를 보여줌.\n\n· 15% 이상 — 우수\n· 8 ~ 15% — 양호\n· 0% 미만 — 손실'},
+  margin:{short:'매출 100원당 순이익',long:'순이익률 = 순이익 ÷ 매출.\n매출 100원으로 얼마를 손에 남기는지.\n\n· 20% 이상 — 우수 (소프트웨어·플랫폼)\n· 10 ~ 20% — 양호\n· 음수 — 적자 (지출이 매출보다 큼)'},
+  revGrowth:{short:'전년 대비 매출 증가율',long:'직전 연도 대비 매출이 얼마나 늘었는지.\n\n· 30% 이상 — 고성장\n· 10 ~ 30% — 양호\n· 0% 이하 — 매출 감소(역성장)'},
+  earnGrowth:{short:'전년 대비 이익 증가율',long:'직전 연도 대비 순이익(또는 EPS)이 얼마나 늘었는지.\n\n· 20% 이상 — 우수\n· 0 ~ 20% — 성장 중\n· 음수 — 이익 감소'},
+  grossM:{short:'매출에서 원가 빼고 남는 비율',long:'매출총이익률 = (매출 - 매출원가) ÷ 매출.\n원가만 빼고 남는 비율(영업·관리비는 빼기 전).\n\n· 60% 이상 — 우수 (SW·플랫폼)\n· 30 ~ 60% — 평균\n· 30% 미만 — 박한 마진'},
+  debtEq:{short:'자기자본 대비 부채 비율',long:'D/E (부채비율) = 총부채 ÷ 자기자본 × 100.\n낮을수록 재무가 안전.\n\n· 100% 이하 — 재무 건전\n· 100 ~ 200% — 보통\n· 200% 초과 — 부채 부담\n\n금융업·중공업은 일반적으로 높게 형성.'},
+  beta:{short:'시장 대비 주가 변동성',long:'베타 = 종목 변동폭 ÷ 시장(지수) 변동폭.\n\n· 1.0 — 시장과 같이 움직임\n· 1 초과 — 시장보다 더 출렁임 (고변동성)\n· 1 미만 — 시장보다 안정적\n\n2 이상이면 상승·하락 모두 폭이 큼.'}
+};
+function tip(key){
+  if(!GLOSSARY[key])return'';
+  return `<button type="button" class="info-tip" data-tip-key="${key}" aria-label="${key} 설명 보기">?</button>`;
+}
+
+// ─── 툴팁 팝오버 (데스크톱 hover + 모바일 tap, 줄바꿈 안전) ────────────────────
+(function(){
+  let tipEl=null;
+  let activeKey=null;
+  let touchUsed=false;
+  function ensureEl(){
+    if(tipEl)return tipEl;
+    tipEl=document.createElement('div');
+    tipEl.className='tooltip-popover';
+    tipEl.setAttribute('role','tooltip');
+    document.body.appendChild(tipEl);
+    return tipEl;
+  }
+  function position(target){
+    const el=ensureEl();
+    const r=target.getBoundingClientRect();
+    el.style.visibility='hidden';
+    el.style.opacity='0';
+    el.classList.add('show');
+    const tw=el.offsetWidth,th=el.offsetHeight;
+    const vw=document.documentElement.clientWidth;
+    const padding=8;
+    let left=r.left+r.width/2-tw/2+window.scrollX;
+    if(left<8)left=8;
+    if(left+tw>vw-8)left=Math.max(8,vw-8-tw);
+    let top=r.bottom+padding+window.scrollY;
+    const spaceBelow=window.innerHeight-r.bottom;
+    if(spaceBelow<th+padding+8&&r.top>th+padding+8){
+      top=r.top-th-padding+window.scrollY;
+    }
+    el.style.left=left+'px';
+    el.style.top=top+'px';
+    el.style.visibility='';
+    el.style.opacity='';
+  }
+  function show(target,key){
+    const g=GLOSSARY[key];
+    if(!g)return;
+    const el=ensureEl();
+    el.textContent=g.long;
+    activeKey=key;
+    requestAnimationFrame(()=>position(target));
+  }
+  function hide(){
+    if(!tipEl)return;
+    tipEl.classList.remove('show');
+    activeKey=null;
+  }
+  // 터치 이벤트 감지 (모바일에서 hover 충돌 방지)
+  document.addEventListener('touchstart',()=>{touchUsed=true},{passive:true,once:true});
+  // hover (데스크톱)
+  document.addEventListener('mouseover',e=>{
+    if(touchUsed)return;
+    const t=e.target.closest('[data-tip-key]');
+    if(!t)return;
+    show(t,t.dataset.tipKey);
+  });
+  document.addEventListener('mouseout',e=>{
+    if(touchUsed)return;
+    const t=e.target.closest('[data-tip-key]');
+    if(!t)return;
+    if(e.relatedTarget&&e.relatedTarget.closest&&e.relatedTarget.closest('[data-tip-key]')===t)return;
+    hide();
+  });
+  // tap / click (모바일·데스크톱 공통 토글)
+  document.addEventListener('click',e=>{
+    const t=e.target.closest('[data-tip-key]');
+    if(t){
+      e.preventDefault();
+      e.stopPropagation();
+      const k=t.dataset.tipKey;
+      if(activeKey===k&&tipEl&&tipEl.classList.contains('show')){hide()}
+      else{show(t,k)}
+      return;
+    }
+    if(!e.target.closest('.tooltip-popover'))hide();
+  });
+  // 키보드 접근성
+  document.addEventListener('keydown',e=>{if(e.key==='Escape')hide()});
+  document.addEventListener('focusin',e=>{
+    const t=e.target.closest&&e.target.closest('[data-tip-key]');
+    if(t)show(t,t.dataset.tipKey);
+  });
+  document.addEventListener('focusout',e=>{
+    const t=e.target.closest&&e.target.closest('[data-tip-key]');
+    if(t)hide();
+  });
+  // 스크롤·리사이즈 시 닫기 (위치 어긋남 방지)
+  window.addEventListener('scroll',()=>{if(activeKey)hide()},{passive:true});
+  window.addEventListener('resize',()=>{if(activeKey)hide()});
+})();
+
+// ─── 최근 조회 티커 (localStorage) ────────────────────────────────────────────
+const RECENT_KEY='momcheck.recent.v1';
+const RECENT_MAX=8;
+function loadRecent(){try{const raw=localStorage.getItem(RECENT_KEY);return raw?JSON.parse(raw):[]}catch(_){return[]}}
+function saveRecent(arr){try{localStorage.setItem(RECENT_KEY,JSON.stringify(arr.slice(0,RECENT_MAX)))}catch(_){}}
+function tickerLabel(t){
+  const u=String(t||'').trim().toUpperCase();
+  if(/^\d{5,6}$/.test(u))return KR_NAMES[u]||u;
+  return u;
+}
+function escAttr(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function addToRecent(t){
+  const u=String(t||'').trim().toUpperCase();
+  if(!u)return;
+  const arr=loadRecent().filter(x=>x.t!==u);
+  arr.unshift({t:u,l:tickerLabel(u)});
+  saveRecent(arr);
+  renderRecent();
+}
+function removeFromRecent(t){
+  saveRecent(loadRecent().filter(x=>x.t!==t));
+  renderRecent();
+}
+function clearRecent(){saveRecent([]);renderRecent()}
+function renderRecent(){
+  const el=document.getElementById('recent');
+  if(!el)return;
+  const arr=loadRecent();
+  if(!arr.length){el.style.display='none';el.innerHTML='';return}
+  el.style.display='flex';
+  el.innerHTML='<span class="recent-label">🕘 최근 본 종목</span>'
+    +arr.map(x=>`<span class="recent-chip" onclick="setT('${escAttr(x.t)}')"><span class="recent-chip-text">${escAttr(x.l)}</span><button type="button" class="recent-x" onclick="event.stopPropagation();removeFromRecent('${escAttr(x.t)}')" aria-label="${escAttr(x.l)} 삭제">×</button></span>`).join('')
+    +'<button type="button" class="recent-clear" onclick="clearRecent()">전체 삭제</button>';
+}
 
 function setT(t){document.getElementById('ticker').value=t;run()}
 function switchTab(name){
@@ -637,6 +819,7 @@ function fmtBig(n){if(n==null||!isFinite(n))return'—';const a=Math.abs(n);if(a
 async function run(){
   const rawTicker=document.getElementById('ticker').value.trim();
   if(!rawTicker)return;
+  addToRecent(rawTicker);
 
   const isKr=isKoreanTicker(rawTicker);
   const status=document.getElementById('status');
@@ -1057,14 +1240,14 @@ async function loadFundamental(ticker,opts={}){
       return fpe!=null?'Forward '+fmtNum(fpe):'주가/이익 비율';
     })();
     const cards=[
-      {t:'시가총액',m:fmtMcap(mcap)+(mcapApprox?' *':''),d:mcapApprox?'근사값 (API 제한)':'기업 규모'},
-      {t:'P/E (TTM)',m:pe!=null?fmtNum(pe):'—',d:peDesc},
-      {t:'PEG',m:peg!=null?fmtNum(peg):'—',d:pegCalculated?'이익 성장률 기반 계산값':'성장 대비 밸류'},
-      {t:'P/B',m:pb!=null?fmtNum(pb):'—',d:'주가/순자산'},
-      {t:'P/S',m:ps!=null?fmtNum(ps):'—',d:'주가/매출'},
-      {t:'배당수익률',m:divY!=null&&divY>0?(divY*100).toFixed(2)+'%':isNoDividend?'무배당':'—',d:isNoDividend?'배당 미지급 종목':'연간 배당'},
-      {t:'ROE',m:roe!=null?(roe*100).toFixed(1)+'%':'—',d:roa!=null?'ROA '+(roa*100).toFixed(1)+'%':'자기자본이익률'},
-      {t:'순이익률',m:margin!=null?(margin*100).toFixed(1)+'%'+(marginCalculated?' *':''):'—',d:margin==null?(usedFallback?'외부 소스 미제공':'데이터 없음'):marginCalculated?'P/S÷P/E 역산':opMargin!=null?'영업 '+(opMargin*100).toFixed(1)+'%':grossM!=null?'매출총이익 '+(grossM*100).toFixed(1)+'%':'순이익/매출'},
+      {t:'시가총액',k:'mcap',m:fmtMcap(mcap)+(mcapApprox?' *':''),d:mcapApprox?'근사값 (API 제한)':'기업 규모'},
+      {t:'P/E (TTM)',k:'pe',m:pe!=null?fmtNum(pe):'—',d:peDesc},
+      {t:'PEG',k:'peg',m:peg!=null?fmtNum(peg):'—',d:pegCalculated?'이익 성장률 기반 계산값':'성장 대비 밸류'},
+      {t:'P/B',k:'pb',m:pb!=null?fmtNum(pb):'—',d:'주가/순자산'},
+      {t:'P/S',k:'ps',m:ps!=null?fmtNum(ps):'—',d:'주가/매출'},
+      {t:'배당수익률',k:'divY',m:divY!=null&&divY>0?(divY*100).toFixed(2)+'%':isNoDividend?'무배당':'—',d:isNoDividend?'배당 미지급 종목':'연간 배당'},
+      {t:'ROE',k:'roe',m:roe!=null?(roe*100).toFixed(1)+'%':'—',d:roa!=null?'ROA '+(roa*100).toFixed(1)+'%':'자기자본이익률'},
+      {t:'순이익률',k:'margin',m:margin!=null?(margin*100).toFixed(1)+'%'+(marginCalculated?' *':''):'—',d:margin==null?(usedFallback?'외부 소스 미제공':'데이터 없음'):marginCalculated?'P/S÷P/E 역산':opMargin!=null?'영업 '+(opMargin*100).toFixed(1)+'%':grossM!=null?'매출총이익 '+(grossM*100).toFixed(1)+'%':'순이익/매출'},
     ];
     // 핵심 지표가 하나도 없을 때만 차트 기반 대체 카드 표시
     const hasFundamentals=pe!=null||pb!=null||ps!=null||roe!=null||margin!=null;
@@ -1076,21 +1259,62 @@ async function loadFundamental(ticker,opts={}){
       );
     }
 
+    // ─── 시각화 막대 정의 ─────────────────────────────────────────────────────
+    // pos(x): 값을 막대 위 0~100% 위치로 매핑 (구간별 piecewise 매핑으로
+    //   임계값이 시각적으로 같은 위치에 오게 함)
+    // zones: 막대 배경의 빨강·노랑·초록 영역(폭은 % 합계 100)
+    // hint: 막대 아래에 보일 임계 기준 설명 (초보자용)
     const bars=[
-      {l:'매출 성장',v:revGrowth,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,(x+0.1)*333)),cls:x=>x>0.10?'good':x>0?'neutral':'bad'},
-      {l:'이익 성장',v:earnGrowth,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,(x+0.1)*333)),cls:x=>x>0.10?'good':x>0?'neutral':'bad'},
-      {l:'ROE',v:roe,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,x*333)),cls:x=>x>0.15?'good':x>0.08?'neutral':'bad'},
-      {l:'매출총이익률',v:grossM,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,x*200)),cls:x=>x>0.40?'good':x>0.20?'neutral':'bad'},
-      {l:'순이익률',v:margin,fmt:x=>(x*100).toFixed(1)+'%',scale:x=>Math.max(0,Math.min(100,x*333)),cls:x=>x>0.10?'good':x>0?'neutral':'bad'},
-      {l:'부채비율(D/E)',v:debtEq,fmt:x=>x.toFixed(0)+'%',scale:x=>Math.max(0,Math.min(100,100-x/(isKorean?4:3))),cls:x=>x<deqGood?'good':x<deqBad?'neutral':'bad'},
+      {l:'매출 성장',sub:'전년 대비',k:'revGrowth',v:revGrowth,
+       fmt:x=>(x*100).toFixed(1)+'%',
+       pos:x=>x<0?Math.max(0,25+x*100):x<0.1?25+(x/0.1)*25:x<0.3?50+((x-0.1)/0.2)*25:Math.min(100,75+((x-0.3)/0.7)*25),
+       zones:[{w:25,c:'bad'},{w:25,c:'neutral'},{w:50,c:'good'}],
+       cls:x=>x>0.10?'good':x>0?'neutral':'bad',
+       verdict:x=>x>0.30?'고성장':x>0.10?'양호':x>0?'성장 중':'역성장',
+       hint:'0% 미만 = 역성장 · 10% 이상 = 양호 · 30% 이상 = 고성장'},
+      {l:'이익 성장',sub:'전년 대비',k:'earnGrowth',v:earnGrowth,
+       fmt:x=>(x*100).toFixed(1)+'%',
+       pos:x=>x<0?Math.max(0,25+x*100):x<0.1?25+(x/0.1)*25:x<0.3?50+((x-0.1)/0.2)*25:Math.min(100,75+((x-0.3)/0.7)*25),
+       zones:[{w:25,c:'bad'},{w:25,c:'neutral'},{w:50,c:'good'}],
+       cls:x=>x>0.10?'good':x>0?'neutral':'bad',
+       verdict:x=>x>0.30?'우수':x>0.10?'양호':x>0?'성장 중':'이익 감소',
+       hint:'0% 미만 = 감소 · 10% 이상 = 양호 · 30% 이상 = 우수'},
+      {l:'ROE',sub:'자기자본이익률',k:'roe',v:roe,
+       fmt:x=>(x*100).toFixed(1)+'%',
+       pos:x=>x<0?Math.max(0,15+x*150):x<0.08?15+(x/0.08)*30:x<0.15?45+((x-0.08)/0.07)*30:Math.min(100,75+((x-0.15)/0.15)*25),
+       zones:[{w:15,c:'bad'},{w:30,c:'neutral'},{w:55,c:'good'}],
+       cls:x=>x>0.15?'good':x>0.08?'neutral':'bad',
+       verdict:x=>x>0.20?'매우 우수':x>0.15?'우수':x>0.08?'양호':x>=0?'평범':'손실',
+       hint:'0% 미만 = 손실 · 8% 이상 = 양호 · 15% 이상 = 우수'},
+      {l:'매출총이익률',sub:'원가 빼고 남는 비율',k:'grossM',v:grossM,
+       fmt:x=>(x*100).toFixed(1)+'%',
+       pos:x=>x<0?0:x<0.2?(x/0.2)*25:x<0.4?25+((x-0.2)/0.2)*25:x<0.6?50+((x-0.4)/0.2)*25:Math.min(100,75+((x-0.6)/0.4)*25),
+       zones:[{w:25,c:'bad'},{w:25,c:'neutral'},{w:50,c:'good'}],
+       cls:x=>x>0.40?'good':x>0.20?'neutral':'bad',
+       verdict:x=>x>0.60?'매우 우수':x>0.40?'양호':x>0.20?'평범':'박한 마진',
+       hint:'20% 미만 = 박함 · 40% 이상 = 양호 · 60% 이상 = 우수'},
+      {l:'순이익률',sub:'매출 100원당 순이익',k:'margin',v:margin,
+       fmt:x=>(x*100).toFixed(1)+'%',
+       pos:x=>x<-0.10?Math.max(0,15+(x+0.1)*100):x<0?15+((x+0.1)/0.1)*15:x<0.10?30+(x/0.10)*30:x<0.20?60+((x-0.1)/0.1)*20:Math.min(100,80+((x-0.2)/0.3)*20),
+       zones:[{w:30,c:'bad'},{w:30,c:'neutral'},{w:40,c:'good'}],
+       cls:x=>x>0.10?'good':x>0?'neutral':'bad',
+       verdict:x=>x>0.20?'매우 우수':x>0.10?'양호':x>0?'박한 흑자':'적자',
+       hint:'0% 미만 = 적자 · 10% 이상 = 양호 · 20% 이상 = 우수'},
+      {l:'부채비율(D/E)',sub:'낮을수록 좋음',k:'debtEq',v:debtEq,
+       fmt:x=>x.toFixed(0)+'%',
+       pos:x=>{const g=deqGood,b=deqBad;return x<=0?100:x<g?100-(x/g)*30:x<b?70-((x-g)/(b-g))*40:Math.max(0,30-((x-b)/b)*30)},
+       zones:[{w:30,c:'bad'},{w:40,c:'neutral'},{w:30,c:'good'}],
+       cls:x=>x<deqGood?'good':x<deqBad?'neutral':'bad',
+       verdict:x=>x<deqGood?'재무 건전':x<deqBad?'보통':'부채 부담',
+       hint:`${deqGood}% 이하 = 건전 · ${deqBad}% 초과 = 부담${isKorean?' (한국 시장 기준)':''}`},
     ].filter(b=>b.v!=null&&isFinite(b.v));
 
     const dets=[];
-    if(pe!=null)dets.push({ok:pe>0&&pe<peGood,bad:pe<0&&!(fpe!=null&&fpe>0&&fpe<peBad)||pe>peBad*1.3,t:`P/E ${fmtNum(pe)}`,v:pe>0&&pe<peGood?'합리적':pe>peBad?'고평가 우려':pe<0&&fpe!=null&&fpe>0?'실적 회복 중':pe<0?'적자':'다소 높음'});
-    if(roe!=null)dets.push({ok:roe>0.15,bad:roe<0,t:`ROE ${(roe*100).toFixed(1)}%`,v:roe>0.15?'우수':roe>0.08?'양호':roe<0?'손실':'평범'});
-    if(revGrowth!=null)dets.push({ok:revGrowth>0.05,bad:revGrowth<0,t:`매출 성장 ${(revGrowth*100).toFixed(1)}%`,v:revGrowth>0.10?'고성장':revGrowth>0?'성장':'역성장'});
-    if(debtEq!=null)dets.push({ok:debtEq<deqGood,bad:debtEq>deqBad*1.5,t:`D/E ${debtEq.toFixed(0)}%`,v:debtEq<deqGood?'재무 건전':debtEq<deqBad?'보통':'부채 부담'});
-    if(beta!=null)dets.push({ok:false,bad:false,t:`베타 ${fmtNum(beta)}`,v:beta>1.3?'고변동성':beta<0.7?'저변동성':'시장 수준'});
+    if(pe!=null)dets.push({k:'pe',ok:pe>0&&pe<peGood,bad:pe<0&&!(fpe!=null&&fpe>0&&fpe<peBad)||pe>peBad*1.3,t:`P/E ${fmtNum(pe)}`,v:pe>0&&pe<peGood?'합리적':pe>peBad?'고평가 우려':pe<0&&fpe!=null&&fpe>0?'실적 회복 중':pe<0?'적자':'다소 높음'});
+    if(roe!=null)dets.push({k:'roe',ok:roe>0.15,bad:roe<0,t:`ROE ${(roe*100).toFixed(1)}%`,v:roe>0.15?'우수':roe>0.08?'양호':roe<0?'손실':'평범'});
+    if(revGrowth!=null)dets.push({k:'revGrowth',ok:revGrowth>0.05,bad:revGrowth<0,t:`매출 성장 ${(revGrowth*100).toFixed(1)}%`,v:revGrowth>0.10?'고성장':revGrowth>0?'성장':'역성장'});
+    if(debtEq!=null)dets.push({k:'debtEq',ok:debtEq<deqGood,bad:debtEq>deqBad*1.5,t:`D/E ${debtEq.toFixed(0)}%`,v:debtEq<deqGood?'재무 건전':debtEq<deqBad?'보통':'부채 부담'});
+    if(beta!=null)dets.push({k:'beta',ok:false,bad:false,t:`베타 ${fmtNum(beta)}`,v:beta>1.3?'고변동성':beta<0.7?'저변동성':'시장 수준'});
 
     const marketNote=isKorean
       ?'한국 주식은 KRW(₩) 기준으로 표시됩니다. PE/D/E 기준은 한국 시장 평균을 반영해 조정됩니다.'
@@ -1112,19 +1336,29 @@ async function loadFundamental(ticker,opts={}){
         </div>
       </div>
       <div class="card">
-        <div class="section-title">한눈에 보는 핵심 항목</div>
+        <div class="section-title">한눈에 보는 핵심 항목 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">· 항목 옆 ? 를 누르면 자세한 설명</span></div>
         <div class="fund-grid">
-          ${cards.map(c=>`<div class="fund-card"><div class="fund-title">${c.t}</div><div class="fund-main">${c.m}</div><div class="fund-desc">${c.d}</div></div>`).join('')}
+          ${cards.map(c=>`<div class="fund-card"><div class="fund-title">${c.t}${c.k?tip(c.k):''}</div><div class="fund-main">${c.m}</div><div class="fund-desc">${c.d}</div>${c.k&&GLOSSARY[c.k]?`<div class="fund-sub">${GLOSSARY[c.k].short}</div>`:''}</div>`).join('')}
         </div>
       </div>
       ${dets.length?`<div class="card">
         <div class="section-title">세부 판단</div>
-        ${dets.map(d=>`<div class="signal ${d.ok?'signal-good':d.bad?'signal-bad':'signal-neutral'}"><span>${d.ok?'✓':d.bad?'✗':'•'} ${d.t}</span><strong>${d.v}</strong></div>`).join('')}
+        ${dets.map(d=>`<div class="signal ${d.ok?'signal-good':d.bad?'signal-bad':'signal-neutral'}"><span>${d.ok?'✓':d.bad?'✗':'•'} ${d.t}${d.k?tip(d.k):''}</span><strong>${d.v}</strong></div>`).join('')}
       </div>`:''}
       ${bars.length?`<div class="card">
-        <div class="section-title">시각화</div>
+        <div class="section-title">시각화 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">· 검은 막대 = 현재 위치, 배경색 = 좋음(초록)/보통(노랑)/주의(빨강) 구간</span></div>
         <div class="bar-list">
-          ${bars.map(b=>`<div class="bar-row"><div class="bar-label">${b.l}</div><div class="bar-track"><div class="bar-fill ${b.cls(b.v)}" style="width:${b.scale(b.v)}%"></div></div><div class="bar-val">${b.fmt(b.v)}</div></div>`).join('')}
+          ${bars.map(b=>{const p=Math.max(0,Math.min(100,b.pos(b.v)));const cls=b.cls(b.v);return `<div class="bar-row">
+            <div class="bar-head">
+              <div class="bar-label">${b.l}${b.sub?` <span class="bar-sub">${b.sub}</span>`:''}${b.k?tip(b.k):''}</div>
+              <div class="bar-rating"><span class="bar-val">${b.fmt(b.v)}</span><span class="bar-verdict ${cls}">${b.verdict(b.v)}</span></div>
+            </div>
+            <div class="bar-track">
+              <div class="bar-zones">${b.zones.map(z=>`<div class="zone zone-${z.c}" style="width:${z.w}%"></div>`).join('')}</div>
+              <div class="bar-marker" style="left:${p}%"></div>
+            </div>
+            <div class="bar-hint">${b.hint.split(' · ').map(s=>`<span>${s}</span>`).join('')}</div>
+          </div>`}).join('')}
         </div>
         <div class="mini-note">※ 데이터 소스: ${sourceNote}. ${usedFallback?'Yahoo 상세 API가 제한되어 보강 소스를 우선 사용했습니다.':'Yahoo 상세 API를 우선 사용했습니다.'}${knownUsed&&known?' · 일부 값은 최후 대체 스냅샷입니다.':''} ${marketNote}</div>
       </div>`:''}
@@ -1135,6 +1369,7 @@ async function loadFundamental(ticker,opts={}){
 }
 
 document.getElementById('ticker').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
+renderRecent();
 </script>
 </body>
 </html>
