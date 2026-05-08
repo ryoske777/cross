@@ -473,7 +473,7 @@ function getLastKnownFundamental(key){return LAST_KNOWN_FUNDAMENTALS[String(key|
 
 const FUND_LABELS=[
   'Forward P/E','P/E','PEG','P/S','P/B','Market Cap','Dividend TTM','Dividend Est.','Dividend %','Dividend Yield',
-  'ROE','ROA','Gross Margin','Oper. Margin','Operating Margin','Profit Margin','Debt/Eq','Debt / Equity','Current Ratio','Quick Ratio',
+  'ROE','ROA','Gross Margin','Oper. Margin','Operating Margin','Profit Margin','Net Profit Margin','Net Margin','Debt/Eq','Debt / Equity','Current Ratio','Quick Ratio',
   'Sales Q/Q','Sales Y/Y TTM','Revenue Growth Forecast (5Y)','EPS this Y','EPS Y/Y TTM','EPS Q/Q','EPS next 5Y','EPS Growth Forecast (5Y)',
   'Beta','Beta (5Y)','PE Ratio','Forward PE','PS Ratio','PB Ratio','PEG Ratio','Return on Equity (ROE)','Return on Assets (ROA)',
   'Employees','Price','Sales','Income'
@@ -586,7 +586,7 @@ function parseFinvizHtml(html){
     roa:       pctFromText(firstMetric(m,'ROA')),
     grossM:    pctFromText(firstMetric(m,'Gross Margin')),
     opMargin:  pctFromText(firstMetric(m,'Oper. Margin','Operating Margin')),
-    profitM:   pctFromText(firstMetric(m,'Profit Margin')),
+    profitM:   pctFromText(firstMetric(m,'Profit Margin','Net Profit Margin','Net Margin')),
     debtEq:    debt!=null?debt*100:null,
     currRatio: numFromText(firstMetric(m,'Current Ratio')),
     mcap:      bigFromText(firstMetric(m,'Market Cap')),
@@ -609,7 +609,7 @@ function parseStockAnalysisHtml(html){
     roa:       pctFromText(firstMetric(m,'Return on Assets (ROA)')),
     grossM:    pctFromText(firstMetric(m,'Gross Margin')),
     opMargin:  pctFromText(firstMetric(m,'Operating Margin')),
-    profitM:   pctFromText(firstMetric(m,'Profit Margin')),
+    profitM:   pctFromText(firstMetric(m,'Profit Margin','Net Profit Margin','Net Margin')),
     debtEq:    debt!=null?debt*100:null,
     currRatio: numFromText(firstMetric(m,'Current Ratio')),
     mcap:      bigFromText(firstMetric(m,'Market Cap')),
@@ -907,6 +907,11 @@ async function loadFundamental(ticker,opts={}){
     if((peg==null||!isFinite(peg))&&pe!=null&&pe>0&&earnGrowth!=null&&earnGrowth>0){peg=pe/(earnGrowth*100);pegCalculated=true}
 
     // ─── 빠진 지표 보완 계산 ────────────────────────────────────────────────────
+    // 0. 순이익률 역산: margin = (P/S) / (P/E) — 흑자 기업에 한해 정확
+    let marginCalculated=false;
+    if(margin==null&&pe!=null&&pe>0&&ps!=null&&ps>0){margin=ps/pe;marginCalculated=true;}
+    // ROE × Equity/Sales = NI/Sales 관계로도 시도 (PB·PS·ROE 모두 양수일 때)
+    if(margin==null&&roe!=null&&roe>0&&pb!=null&&pb>0&&ps!=null&&ps>0){margin=roe*ps/pb;marginCalculated=true;}
     // 1. ROE 계산: PB×ROA 근사, 또는 순이익률/(1-부채비율)
     if(roe==null&&pb!=null&&roa!=null&&roa>0){roe=pb*roa;}
     if(roe==null&&margin!=null&&debtEq!=null&&margin>0&&debtEq<500){roe=margin/(1-Math.max(0,debtEq/100));}
@@ -1059,7 +1064,7 @@ async function loadFundamental(ticker,opts={}){
       {t:'P/S',m:ps!=null?fmtNum(ps):'—',d:'주가/매출'},
       {t:'배당수익률',m:divY!=null&&divY>0?(divY*100).toFixed(2)+'%':isNoDividend?'무배당':'—',d:isNoDividend?'배당 미지급 종목':'연간 배당'},
       {t:'ROE',m:roe!=null?(roe*100).toFixed(1)+'%':'—',d:roa!=null?'ROA '+(roa*100).toFixed(1)+'%':'자기자본이익률'},
-      {t:'순이익률',m:margin!=null?(margin*100).toFixed(1)+'%':'—',d:opMargin!=null?'영업 '+(opMargin*100).toFixed(1)+'%':grossM!=null?'매출총이익 '+(grossM*100).toFixed(1)+'%':''},
+      {t:'순이익률',m:margin!=null?(margin*100).toFixed(1)+'%'+(marginCalculated?' *':''):'—',d:margin==null?(usedFallback?'외부 소스 미제공':'데이터 없음'):marginCalculated?'P/S÷P/E 역산':opMargin!=null?'영업 '+(opMargin*100).toFixed(1)+'%':grossM!=null?'매출총이익 '+(grossM*100).toFixed(1)+'%':'순이익/매출'},
     ];
     // 핵심 지표가 하나도 없을 때만 차트 기반 대체 카드 표시
     const hasFundamentals=pe!=null||pb!=null||ps!=null||roe!=null||margin!=null;
