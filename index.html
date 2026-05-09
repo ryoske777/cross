@@ -79,8 +79,9 @@ button.primary:hover{background:var(--primary-hover)}
 .footer{text-align:center;color:var(--text-tertiary);font-size:12px;margin-top:40px}
 .loader{width:20px;height:20px;border:3px solid #CCC;border-bottom-color:var(--primary);border-radius:50%;display:inline-block;animation:rot 1s linear infinite;vertical-align:middle;margin-right:8px}
 @keyframes rot{0%{transform:rotate(0)}100%{transform:rotate(360deg)}}
-.tabs{display:flex;gap:8px;margin-bottom:14px;background:rgba(255,255,255,0.52);border:1px solid var(--border);padding:6px;border-radius:12px}
-.tab-btn{flex:1;border:none;background:transparent;color:var(--text-secondary);padding:11px 12px;border-radius:9px;font-size:14px;font-weight:800;cursor:pointer}
+.tabs{display:flex;gap:6px;margin-bottom:14px;background:rgba(255,255,255,0.52);border:1px solid var(--border);padding:6px;border-radius:12px;overflow-x:auto;scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab-btn{flex:1 1 auto;min-width:max-content;border:none;background:transparent;color:var(--text-secondary);padding:11px 12px;border-radius:9px;font-size:13.5px;font-weight:800;cursor:pointer;white-space:nowrap}
 .tab-btn.active{background:var(--surface);color:var(--primary);box-shadow:0 2px 8px rgba(0,0,0,0.04)}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
@@ -145,6 +146,34 @@ button.primary:hover{background:var(--primary-hover)}
 .fund-sub{font-size:11px;color:var(--text-tertiary);margin-top:8px;line-height:1.5;border-top:1px dashed rgba(0,0,0,.06);padding-top:6px}
 .fund-title{display:flex;align-items:center}
 .signal span{display:inline-flex;align-items:center;gap:6px}
+
+/* Flow / Short tab tables */
+.flow-table{width:100%;border-collapse:collapse;font-size:13px;font-variant-numeric:tabular-nums}
+.flow-table th,.flow-table td{padding:8px 6px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--border)}
+.flow-table th{font-size:11.5px;font-weight:800;color:var(--text-secondary);background:var(--bg);text-align:right}
+.flow-table th:first-child,.flow-table td:first-child{text-align:left}
+.flow-table tr:last-child td{border-bottom:none}
+.flow-table .pos{color:var(--good);font-weight:700}
+.flow-table .neg{color:var(--bad);font-weight:700}
+.flow-summary{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px}
+@media(min-width:560px){.flow-summary{grid-template-columns:repeat(4,1fr)}}
+.flow-stat{background:var(--bg);border-radius:10px;padding:12px;text-align:center}
+.flow-stat-label{font-size:11.5px;color:var(--text-secondary);margin-bottom:4px;font-weight:700}
+.flow-stat-value{font-size:16px;font-weight:900;letter-spacing:-0.02em}
+.flow-stat-sub{font-size:10.5px;color:var(--text-tertiary);margin-top:3px}
+.flow-bar-cell{display:flex;align-items:center;justify-content:flex-end;gap:6px}
+.flow-mini-bar{display:inline-block;height:6px;background:rgba(0,0,0,0.06);border-radius:3px;width:42px;position:relative;overflow:hidden}
+.flow-mini-bar .fill{position:absolute;top:0;bottom:0;left:50%;background:var(--text-tertiary)}
+.flow-mini-bar .fill.pos{background:var(--good)}
+.flow-mini-bar .fill.neg{background:var(--bad)}
+.anom-row{display:flex;justify-content:space-between;gap:10px;padding:9px 12px;border-radius:9px;background:var(--bg);margin-bottom:6px;font-size:13px;align-items:center}
+.anom-row .anom-tag{font-size:11px;font-weight:800;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.anom-row .anom-tag.up{background:var(--good-bg);color:var(--good)}
+.anom-row .anom-tag.dn{background:var(--bad-bg);color:var(--bad)}
+.anom-row .anom-tag.vol{background:var(--neutral-bg);color:var(--neutral)}
+.anom-row .anom-date{font-weight:800;color:var(--text)}
+.anom-row .anom-detail{color:var(--text-secondary);font-size:12px}
+.disclaimer{background:var(--neutral-bg);color:var(--neutral);border-radius:10px;padding:11px 14px;font-size:12px;line-height:1.6;margin-top:10px}
 </style>
 </head>
 <body>
@@ -183,6 +212,8 @@ button.primary:hover{background:var(--primary-hover)}
 <div class="tabs">
 <button class="tab-btn active" data-tab="tech" onclick="switchTab('tech')">📈 기술적 분석</button>
 <button class="tab-btn" data-tab="fund" onclick="switchTab('fund')">🏢 펀더멘털 분석</button>
+<button class="tab-btn" data-tab="flow" onclick="switchTab('flow')">🏦 수급 동향</button>
+<button class="tab-btn" data-tab="short" onclick="switchTab('short')">🩳 공매도·이상신호</button>
 </div>
 
 <div id="tab-tech" class="tab-panel active">
@@ -211,6 +242,14 @@ button.primary:hover{background:var(--primary-hover)}
 
 <div id="tab-fund" class="tab-panel">
 <div id="fund-content"></div>
+</div>
+
+<div id="tab-flow" class="tab-panel">
+<div id="flow-content"></div>
+</div>
+
+<div id="tab-short" class="tab-panel">
+<div id="short-content"></div>
 </div>
 </div>
 
@@ -635,6 +674,15 @@ function setT(t){document.getElementById('ticker').value=t;hideSuggest();run()}
 function switchTab(name){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+name));
+  // 수급/공매도 탭은 처음 진입 시에만 로드 (네트워크 절약)
+  if(!_tabState)return;
+  if(name==='flow'&&!_tabState.flowLoaded){
+    _tabState.flowLoaded=true;
+    loadFlow(_tabState.ticker,_tabState).finally(showStaleNoticeIfAny);
+  }else if(name==='short'&&!_tabState.shortLoaded){
+    _tabState.shortLoaded=true;
+    loadShort(_tabState.ticker,_tabState,_tabState.chart).finally(showStaleNoticeIfAny);
+  }
 }
 
 // ─── 자동완성 (회사명/티커 검색) ─────────────────────────────────────────────
@@ -1397,6 +1445,12 @@ async function run(){
   // 펀더멘털 카드(#fund-content) 내부에 이미 로더가 있어 사용자가 진행 상태를 인지 가능.
   status.style.display='none';
   document.getElementById('results').style.display='block';
+  // 새 종목 분석 시 첫 탭(기술적)으로 복귀 + 수급/공매도 탭 lazy 로드 상태 리셋
+  switchTab('tech');
+  _tabState={ticker:yahooTicker,isKorean:isKr,code:rawTicker,market:krMarket,chart,flowLoaded:false,shortLoaded:false};
+  // 빈 상태 placeholder 표시 (탭 진입 전)
+  document.getElementById('flow-content').innerHTML='<div class="card"><div class="empty-state" style="background:var(--bg);color:var(--text-tertiary)">🏦 수급 동향 탭을 누르면 데이터를 불러옵니다.</div></div>';
+  document.getElementById('short-content').innerHTML='<div class="card"><div class="empty-state" style="background:var(--bg);color:var(--text-tertiary)">🩳 공매도·이상신호 탭을 누르면 데이터를 불러옵니다.</div></div>';
   showStaleNoticeIfAny();
   // SVG 차트 3종 — rAF로 결과 패널 첫 paint 후로 미뤄 입력 응답성 보호
   requestAnimationFrame(()=>{
@@ -1927,6 +1981,416 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
     box.innerHTML=`<div class="card"><div class="section-title">펀더멘털 요약</div><div class="fundamental-hero"><div class="company-box"><div class="company-name">${escAttr(isKorean?code:ticker)}</div><div class="company-meta">공개 데이터 연결이 제한되어 기본 분석만 표시합니다.</div><div class="tag-row">${market?`<span class="tag kr">${escAttr(market)}</span>`:''}<span class="tag">대체 모드</span></div></div><div class="fund-score"><div class="score-number" style="color:var(--neutral)">50</div><div class="score-label">펀더멘털 점수 — <strong style="color:var(--neutral)">보통</strong></div></div></div></div><div class="card"><div class="empty-state">현재 무료 공개 소스에서 상세 지표를 찾지 못했습니다. 기술적 분석과 가격 기반 대체 지표를 함께 참고해 주세요.</div></div>`;
   }
 }
+
+// ─── 수급 동향 / 공매도·이상신호 탭 ────────────────────────────────────────
+// 한국: 네이버 금융 frgn.naver / short.naver HTML 파싱
+// 미국: Yahoo quoteSummary (institutionOwnership, majorHolders, defaultKeyStatistics)
+// 이상신호: 이미 받아둔 차트로 거래량 급증 + 가격 급변일 탐지
+
+function _parseKRDate(s){
+  // "2026.05.09" 형식만 신뢰 (다른 셀의 가격/숫자 오인 방지)
+  const m=String(s||'').trim().match(/^(\d{4})\.(\d{1,2})\.(\d{1,2})$/);
+  return m?`${m[1]}.${m[2].padStart(2,'0')}.${m[3].padStart(2,'0')}`:null;
+}
+function _parseSignedNum(s){
+  if(s==null)return null;
+  const t=String(s).replace(/[,\s]/g,'').replace(/[+]/g,'');
+  if(t===''||t==='-'||t==='—')return null;
+  const n=parseFloat(t);
+  return isFinite(n)?n:null;
+}
+
+// 네이버 frgn.naver: 일자별 기관/외국인 순매매 + 외국인 보유율
+async function getNaverInvestorFlow(code){
+  try{
+    const url=`https://finance.naver.com/item/frgn.naver?code=${encodeURIComponent(code)}`;
+    const html=await fetchText(url,TTL.HTML);
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const rows=[];
+    // 표 구조: 날짜 | 종가 | 전일비 | 등락률 | 거래량 | 기관 순매매 | 외국인 순매매 | 외국인 보유주수 | 외국인 보유율
+    doc.querySelectorAll('table tr').forEach(tr=>{
+      const tds=tr.querySelectorAll('td');
+      if(tds.length<7)return;
+      const date=_parseKRDate(tds[0].textContent);
+      if(!date)return;
+      // 등락률 셀이 +/- 표시(이미지 포함)이라 종가 변동분만 참고
+      const close=_parseSignedNum(tds[1].textContent);
+      const volume=_parseSignedNum(tds[4].textContent);
+      const inst=_parseSignedNum(tds[5].textContent);
+      const foreign=_parseSignedNum(tds[6].textContent);
+      const fHold=tds.length>=9?_parseSignedNum(tds[8].textContent):null; // %
+      rows.push({date,close,volume,inst,foreign,fHold});
+    });
+    return rows.length?rows:null;
+  }catch(_){return null}
+}
+
+// 네이버 short.naver: 일자별 공매도 거래량/거래대금
+async function getNaverShort(code){
+  try{
+    const url=`https://finance.naver.com/item/frgn.naver?code=${encodeURIComponent(code)}`.replace('frgn.naver','short.naver');
+    const html=await fetchText(url,TTL.HTML);
+    const doc=new DOMParser().parseFromString(html,'text/html');
+    const rows=[];
+    // 표 구조: 날짜 | 종가 | 전일비 | 등락률 | 거래량 | 공매도 거래량 | 공매도 거래대금
+    doc.querySelectorAll('table tr').forEach(tr=>{
+      const tds=tr.querySelectorAll('td');
+      if(tds.length<6)return;
+      const date=_parseKRDate(tds[0].textContent);
+      if(!date)return;
+      const volume=_parseSignedNum(tds[4].textContent);
+      const shortVol=_parseSignedNum(tds[5].textContent);
+      const shortVal=tds.length>=7?_parseSignedNum(tds[6].textContent):null;
+      rows.push({date,volume,shortVol,shortVal,shortPct:volume&&shortVol?shortVol/volume*100:null});
+    });
+    return rows.length?rows:null;
+  }catch(_){return null}
+}
+
+// 차트에서 이상신호 추출 (거래량 급증 + 가격 급변일)
+function detectAnomalies(chart,opts={}){
+  if(!chart||chart.length<25)return[];
+  const{volMul=2.0,pctTh=4.0,maxOut=10}=opts;
+  const out=[];
+  for(let i=Math.max(20,chart.length-120);i<chart.length;i++){
+    const row=chart[i];
+    const prev=chart[i-1];
+    if(!row||!prev||!row.v||!row.c||!prev.c)continue;
+    // 직전 20일 평균 거래량 (당일 제외)
+    let s=0,n=0;
+    for(let j=Math.max(0,i-20);j<i;j++){if(chart[j]&&chart[j].v){s+=chart[j].v;n++}}
+    const avg=n?s/n:null;
+    const ratio=avg?row.v/avg:null;
+    const ch=(row.c-prev.c)/prev.c*100;
+    const tags=[];
+    if(ratio!=null&&ratio>=volMul)tags.push({k:'vol',label:`거래량 ${ratio.toFixed(1)}x`});
+    if(ch>=pctTh)tags.push({k:'up',label:`+${ch.toFixed(1)}%`});
+    else if(ch<=-pctTh)tags.push({k:'dn',label:`${ch.toFixed(1)}%`});
+    if(tags.length){
+      const d=new Date(row.t*1000);
+      const dStr=`${d.getFullYear()}.${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')}`;
+      out.push({date:dStr,close:row.c,change:ch,volRatio:ratio,tags});
+    }
+  }
+  return out.slice(-maxOut).reverse();
+}
+
+function _flowStat(label,value,sub){
+  return `<div class="flow-stat"><div class="flow-stat-label">${label}</div><div class="flow-stat-value">${value}</div>${sub?`<div class="flow-stat-sub">${sub}</div>`:''}</div>`;
+}
+function _miniBar(val,maxAbs){
+  if(val==null||!maxAbs)return '<span class="flow-mini-bar"></span>';
+  const w=Math.min(50,Math.abs(val)/maxAbs*50);
+  const cls=val>0?'pos':val<0?'neg':'';
+  const left=val>=0?50:50-w;
+  return `<span class="flow-mini-bar"><span class="fill ${cls}" style="left:${left}%;width:${w}%"></span></span>`;
+}
+function _signed(v,unit=''){
+  if(v==null||!isFinite(v))return '<span style="color:var(--text-tertiary)">—</span>';
+  const cls=v>0?'pos':v<0?'neg':'';
+  const sign=v>0?'+':'';
+  return `<span class="${cls}">${sign}${Math.round(v).toLocaleString('ko-KR')}${unit}</span>`;
+}
+
+async function loadFlow(yahooTicker,opts={}){
+  const{isKorean=false,code='',market=''}=opts;
+  const box=document.getElementById('flow-content');
+  box.innerHTML='<div class="card"><span class="loader"></span> 수급 동향 불러오는 중...</div>';
+
+  if(isKorean){
+    const rows=await getNaverInvestorFlow(code);
+    if(!rows||!rows.length){
+      box.innerHTML='<div class="card"><div class="empty-state">네이버 금융에서 이 종목의 수급 데이터를 가져오지 못했어요. 잠시 후 다시 시도해 주세요.</div></div>';
+      return;
+    }
+    // 최근 10일만 사용. 누적 통계 계산 (5일 / 20일)
+    const recent=rows.slice(0,10);
+    const sum=(arr,k)=>arr.reduce((s,x)=>s+(x[k]||0),0);
+    const sum5=(k)=>sum(rows.slice(0,Math.min(5,rows.length)),k);
+    const sumAll=(k)=>sum(rows,k);
+    const fHoldNow=rows.find(r=>r.fHold!=null)?.fHold;
+    const fHoldOld=rows.slice().reverse().find(r=>r.fHold!=null)?.fHold;
+    const fHoldDelta=(fHoldNow!=null&&fHoldOld!=null)?fHoldNow-fHoldOld:null;
+    // 거래량 단위로 표시 (주). 차트 비교용 max
+    const maxAbs=Math.max(1,...recent.flatMap(r=>[Math.abs(r.inst||0),Math.abs(r.foreign||0)]));
+    const fmtSh=v=>{
+      if(v==null||!isFinite(v))return '—';
+      const a=Math.abs(v);const sign=v>0?'+':v<0?'-':'';
+      if(a>=1e8)return sign+(a/1e8).toFixed(1)+'억주';
+      if(a>=1e4)return sign+Math.round(a/1e4).toLocaleString('ko-KR')+'만주';
+      return sign+Math.round(a).toLocaleString('ko-KR');
+    };
+    box.innerHTML=`
+      <div class="card">
+        <div class="section-title">최근 수급 요약 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">· 단위: 주</span></div>
+        <div class="flow-summary">
+          ${_flowStat('5일 기관 누적',_signed(sum5('inst')),'순매수(+)/순매도(-)')}
+          ${_flowStat('5일 외국인 누적',_signed(sum5('foreign')),'')}
+          ${_flowStat(`${rows.length}일 기관 누적`,_signed(sumAll('inst')),'')}
+          ${_flowStat(`${rows.length}일 외국인 누적`,_signed(sumAll('foreign')),'')}
+        </div>
+        ${fHoldNow!=null?`<div class="mini-note">외국인 보유율: <strong>${fHoldNow.toFixed(2)}%</strong>${fHoldDelta!=null?` <span class="${fHoldDelta>=0?'pos':'neg'}" style="font-weight:700">(${fHoldDelta>=0?'+':''}${fHoldDelta.toFixed(2)}%p · 표 기간 동안)</span>`:''}</div>`:''}
+      </div>
+      <div class="card">
+        <div class="section-title">일별 매매 동향 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">· <span class="pos" style="font-weight:700">+</span> 순매수 / <span class="neg" style="font-weight:700">-</span> 순매도</span></div>
+        <div style="overflow-x:auto">
+          <table class="flow-table">
+            <thead><tr><th>날짜</th><th>종가</th><th>거래량</th><th>기관</th><th>외국인</th><th>외국인 보유율</th></tr></thead>
+            <tbody>
+              ${recent.map(r=>`<tr>
+                <td>${escAttr(r.date)}</td>
+                <td>${r.close!=null?fmtPriceKRW(r.close):'—'}</td>
+                <td style="color:var(--text-secondary)">${r.volume!=null?Math.round(r.volume).toLocaleString('ko-KR'):'—'}</td>
+                <td><span class="flow-bar-cell">${_miniBar(r.inst,maxAbs)} <span class="${r.inst>0?'pos':r.inst<0?'neg':''}">${fmtSh(r.inst)}</span></span></td>
+                <td><span class="flow-bar-cell">${_miniBar(r.foreign,maxAbs)} <span class="${r.foreign>0?'pos':r.foreign<0?'neg':''}">${fmtSh(r.foreign)}</span></span></td>
+                <td style="color:var(--text-secondary)">${r.fHold!=null?r.fHold.toFixed(2)+'%':'—'}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="mini-note">데이터: 네이버 금융 외국인·기관 매매 동향 · 영업일 기준 최근 ${rows.length}거래일.</div>
+      </div>
+    `;
+    return;
+  }
+
+  // 미국 주식: Yahoo institutionOwnership / majorHolders / netSharePurchaseActivity
+  const modules='institutionOwnership,majorHolders,fundOwnership,netSharePurchaseActivity,insiderTransactions';
+  let merged={};
+  await Promise.allSettled(['query1','query2'].map(async host=>{
+    try{
+      const j=await fetchJSON(`https://${host}.finance.yahoo.com/v10/finance/quoteSummary/${yahooTicker}?modules=${modules}`,TTL.QUOTE);
+      const row=j?.quoteSummary?.result?.[0];
+      if(row)Object.assign(merged,row);
+    }catch(_){}
+  }));
+  const mh=merged.majorHolders;
+  const io=merged.institutionOwnership?.ownershipList||[];
+  const fo=merged.fundOwnership?.ownershipList||[];
+  const ns=merged.netSharePurchaseActivity;
+  const insiders=merged.insiderTransactions?.transactions||[];
+
+  const instPct=mh?.institutionsPercentHeld?.raw;
+  const insiderPct=mh?.insidersPercentHeld?.raw;
+  const instCount=mh?.institutionsCount?.raw;
+
+  const fmtPctRaw=v=>v!=null&&isFinite(v)?(v*100).toFixed(2)+'%':'—';
+  const fmtBigSh=v=>{
+    if(v==null||!isFinite(v))return '—';
+    const a=Math.abs(v);const s=v<0?'-':'';
+    if(a>=1e9)return s+(a/1e9).toFixed(2)+'B';
+    if(a>=1e6)return s+(a/1e6).toFixed(2)+'M';
+    if(a>=1e3)return s+(a/1e3).toFixed(0)+'K';
+    return s+Math.round(a).toString();
+  };
+
+  if(!mh&&!io.length&&!ns){
+    box.innerHTML=`<div class="card"><div class="empty-state">Yahoo 공개 API에서 이 종목의 보유 정보를 가져오지 못했습니다. 미국 종목은 13F 분기 공시 기반이라 실시간성이 낮고, 일부 ETF/소형주는 공개되지 않을 수 있어요.</div></div>`;
+    return;
+  }
+
+  const topHolders=io.slice(0,8);
+  const topFunds=fo.slice(0,5);
+  const recentInsiders=insiders.slice(0,8);
+
+  const netInfo=ns?{
+    period:ns.period||'',
+    buyShares:ns.buyInfoShares?.raw,
+    sellShares:ns.sellInfoShares?.raw,
+    netShares:ns.netInfoShares?.raw,
+    totalInsider:ns.totalInsiderShares?.raw,
+    netPct:ns.netPercentInsiderShares?.raw,
+  }:null;
+
+  box.innerHTML=`
+    <div class="card">
+      <div class="section-title">소유 구조 (13F·SEC 공시 기반)</div>
+      <div class="flow-summary">
+        ${_flowStat('기관 보유 비중',fmtPctRaw(instPct),instCount?`보고 기관 ${instCount.toLocaleString()}곳`:'')}
+        ${_flowStat('내부자 보유 비중',fmtPctRaw(insiderPct),'임원·이사·10%+ 주주')}
+        ${_flowStat('펀드 보유 비중',fmtPctRaw(mh?.institutionsFloatPercentHeld?.raw),'유동 주식 기준')}
+        ${_flowStat('내부자 순거래',netInfo?.netShares!=null?(netInfo.netShares>=0?'+':'')+fmtBigSh(netInfo.netShares):'—',netInfo?.period?`${netInfo.period} 합산`:'')}
+      </div>
+    </div>
+    ${topHolders.length?`<div class="card">
+      <div class="section-title">주요 기관 보유자 Top ${topHolders.length}</div>
+      <div style="overflow-x:auto"><table class="flow-table">
+        <thead><tr><th>기관</th><th>보유 주식</th><th>보유 비중</th><th>분기 변동</th><th>보고일</th></tr></thead>
+        <tbody>
+          ${topHolders.map(h=>`<tr>
+            <td>${escAttr(h.organization||'—')}</td>
+            <td>${fmtBigSh(h.position?.raw)}</td>
+            <td>${fmtPctRaw(h.pctHeld?.raw)}</td>
+            <td class="${(h.pctChange?.raw||0)>0?'pos':(h.pctChange?.raw||0)<0?'neg':''}">${h.pctChange?.raw!=null?(h.pctChange.raw>=0?'+':'')+(h.pctChange.raw*100).toFixed(2)+'%':'—'}</td>
+            <td style="color:var(--text-secondary)">${h.reportDate?.fmt||'—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>`:''}
+    ${topFunds.length?`<div class="card">
+      <div class="section-title">주요 펀드 보유자 Top ${topFunds.length}</div>
+      <div style="overflow-x:auto"><table class="flow-table">
+        <thead><tr><th>펀드</th><th>보유 주식</th><th>보유 비중</th><th>보고일</th></tr></thead>
+        <tbody>
+          ${topFunds.map(h=>`<tr>
+            <td>${escAttr(h.organization||'—')}</td>
+            <td>${fmtBigSh(h.position?.raw)}</td>
+            <td>${fmtPctRaw(h.pctHeld?.raw)}</td>
+            <td style="color:var(--text-secondary)">${h.reportDate?.fmt||'—'}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table></div>
+    </div>`:''}
+    ${recentInsiders.length?`<div class="card">
+      <div class="section-title">최근 내부자 거래</div>
+      <div style="overflow-x:auto"><table class="flow-table">
+        <thead><tr><th>이름</th><th>거래</th><th>주식</th><th>가치</th><th>일자</th></tr></thead>
+        <tbody>
+          ${recentInsiders.map(t=>{
+            const isBuy=/buy|purchase/i.test(t.transactionText||'');
+            const isSell=/sale|sell/i.test(t.transactionText||'');
+            const cls=isBuy?'pos':isSell?'neg':'';
+            return `<tr>
+              <td>${escAttr(t.filerName||'—')}<div style="color:var(--text-tertiary);font-size:11px">${escAttr(t.filerRelation||'')}</div></td>
+              <td class="${cls}">${escAttr(t.transactionText||'—')}</td>
+              <td>${fmtBigSh(t.shares?.raw)}</td>
+              <td>${t.value?.raw!=null?'$'+fmtBigSh(t.value.raw):'—'}</td>
+              <td style="color:var(--text-secondary)">${t.startDate?.fmt||'—'}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table></div>
+    </div>`:''}
+    <div class="disclaimer">⓵ 미국 주식의 기관 보유 데이터는 SEC 13F 공시 기반으로 <strong>분기 단위·45일 지연</strong> 발표입니다. 단기 매매 동향이 아닌 큰 흐름 참고용으로 사용하세요.</div>
+  `;
+}
+
+async function loadShort(yahooTicker,opts={},chart=[]){
+  const{isKorean=false,code=''}=opts;
+  const box=document.getElementById('short-content');
+  box.innerHTML='<div class="card"><span class="loader"></span> 공매도·이상신호 불러오는 중...</div>';
+
+  // 이상신호는 한·미 공통 (이미 로드된 차트 활용)
+  const anomalies=detectAnomalies(chart);
+  const anomalyCard=anomalies.length?`
+    <div class="card">
+      <div class="section-title">이상 거래 신호 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">· 최근 120일 중 거래량 2x↑ 또는 가격 ±4%↑ 일자</span></div>
+      ${anomalies.map(a=>`<div class="anom-row">
+        <span><span class="anom-date">${escAttr(a.date)}</span> <span class="anom-detail">${isKorean?fmtPriceKRW(a.close):'$'+fmtNum(a.close)}</span></span>
+        <span style="display:flex;gap:6px;flex-wrap:wrap">${a.tags.map(t=>`<span class="anom-tag ${t.k}">${escAttr(t.label)}</span>`).join('')}</span>
+      </div>`).join('')}
+      <div class="mini-note">※ "이상신호" = 평소와 다른 거래 패턴. 호재·악재 뉴스나 기관 수급 변화로 발생하며, 그 자체로 매매 신호는 아닙니다.</div>
+    </div>
+  `:`<div class="card"><div class="empty-state">최근 120일 내 거래량/가격 측면의 이상 신호가 감지되지 않았습니다 (차분한 흐름).</div></div>`;
+
+  if(isKorean){
+    const shortRows=await getNaverShort(code);
+    if(!shortRows||!shortRows.length){
+      box.innerHTML=`${anomalyCard}<div class="card"><div class="empty-state">네이버 금융에서 이 종목의 공매도 데이터를 가져오지 못했어요.</div></div>`;
+      return;
+    }
+    const recent=shortRows.slice(0,10);
+    const avgShortPct=(()=>{const a=recent.filter(r=>r.shortPct!=null);return a.length?a.reduce((s,x)=>s+x.shortPct,0)/a.length:null})();
+    const totalShortVol=recent.reduce((s,r)=>s+(r.shortVol||0),0);
+    const totalShortVal=recent.reduce((s,r)=>s+(r.shortVal||0),0);
+    const peakRow=recent.slice().sort((a,b)=>(b.shortPct||0)-(a.shortPct||0))[0];
+    const fmtVol=v=>{
+      if(v==null||!isFinite(v))return '—';
+      const a=Math.abs(v);
+      if(a>=1e8)return (a/1e8).toFixed(1)+'억주';
+      if(a>=1e4)return Math.round(a/1e4).toLocaleString('ko-KR')+'만주';
+      return Math.round(a).toLocaleString('ko-KR');
+    };
+    box.innerHTML=`
+      <div class="card">
+        <div class="section-title">공매도 요약 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">· 최근 ${recent.length}거래일</span></div>
+        <div class="flow-summary">
+          ${_flowStat('평균 공매도 비중',avgShortPct!=null?avgShortPct.toFixed(2)+'%':'—','거래량 대비')}
+          ${_flowStat('최고 공매도 비중',peakRow?.shortPct!=null?peakRow.shortPct.toFixed(2)+'%':'—',peakRow?.date||'')}
+          ${_flowStat('누적 공매도량',fmtVol(totalShortVol),'')}
+          ${_flowStat('누적 공매도 거래대금',fmtBigKRW(totalShortVal),'')}
+        </div>
+      </div>
+      <div class="card">
+        <div class="section-title">일별 공매도</div>
+        <div style="overflow-x:auto">
+          <table class="flow-table">
+            <thead><tr><th>날짜</th><th>거래량</th><th>공매도 거래량</th><th>비중</th><th>거래대금</th></tr></thead>
+            <tbody>
+              ${recent.map(r=>{
+                const hot=r.shortPct!=null&&r.shortPct>=10;
+                return `<tr>
+                  <td>${escAttr(r.date)}</td>
+                  <td style="color:var(--text-secondary)">${r.volume!=null?Math.round(r.volume).toLocaleString('ko-KR'):'—'}</td>
+                  <td>${r.shortVol!=null?Math.round(r.shortVol).toLocaleString('ko-KR'):'—'}</td>
+                  <td class="${hot?'neg':''}" style="font-weight:${hot?800:600}">${r.shortPct!=null?r.shortPct.toFixed(2)+'%':'—'}</td>
+                  <td style="color:var(--text-secondary)">${r.shortVal!=null?fmtBigKRW(r.shortVal):'—'}</td>
+                </tr>`;
+              }).join('')}
+            </tbody>
+          </table>
+        </div>
+        <div class="mini-note">공매도 비중이 높은 날 = 그 날 거래된 주식 중 빌려서 판 비율이 큼 → 단기 약세 압력 신호일 수 있음. 다만 시장조성·헤지·차익거래 등 정상 거래도 포함됩니다.</div>
+      </div>
+      ${anomalyCard}
+      <div class="disclaimer">데이터: 네이버 금융 일별 공매도. 공매도 잔고(미상환 수량) 정보는 KRX에서만 공식 제공되며 본 화면에는 미포함입니다.</div>
+    `;
+    return;
+  }
+
+  // 미국: Yahoo defaultKeyStatistics 스냅샷
+  let ks={};
+  await Promise.allSettled(['query1','query2'].map(async host=>{
+    try{
+      const j=await fetchJSON(`https://${host}.finance.yahoo.com/v10/finance/quoteSummary/${yahooTicker}?modules=defaultKeyStatistics,summaryDetail`,TTL.QUOTE);
+      const row=j?.quoteSummary?.result?.[0];
+      if(row)Object.assign(ks,row);
+    }catch(_){}
+  }));
+  const dks=ks.defaultKeyStatistics||{};
+  const sd=ks.summaryDetail||{};
+  const sharesShort=dks.sharesShort?.raw;
+  const sharesShortPrev=dks.sharesShortPriorMonth?.raw;
+  const shortRatio=dks.shortRatio?.raw; // days to cover
+  const shortPctOfFloat=dks.shortPercentOfFloat?.raw;
+  const shortPctOfShares=dks.sharesPercentSharesOut?.raw;
+  const dateShortInterest=dks.dateShortInterest?.fmt;
+  const float=sd.floatShares?.raw||dks.floatShares?.raw;
+
+  const haveShort=[sharesShort,shortRatio,shortPctOfFloat].some(v=>v!=null);
+  const fmtBigSh=v=>{
+    if(v==null||!isFinite(v))return '—';
+    const a=Math.abs(v);
+    if(a>=1e9)return (a/1e9).toFixed(2)+'B';
+    if(a>=1e6)return (a/1e6).toFixed(2)+'M';
+    if(a>=1e3)return (a/1e3).toFixed(0)+'K';
+    return Math.round(a).toString();
+  };
+  const shortDelta=(sharesShort!=null&&sharesShortPrev!=null)?sharesShort-sharesShortPrev:null;
+  const shortDeltaPct=(sharesShort!=null&&sharesShortPrev)?(sharesShort/sharesShortPrev-1)*100:null;
+
+  const shortCard=haveShort?`
+    <div class="card">
+      <div class="section-title">공매도 스냅샷 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">${dateShortInterest?`· 기준일 ${escAttr(dateShortInterest)}`:''}</span></div>
+      <div class="flow-summary">
+        ${_flowStat('공매도 잔고',fmtBigSh(sharesShort),'주')}
+        ${_flowStat('Float 대비',shortPctOfFloat!=null?(shortPctOfFloat*100).toFixed(2)+'%':'—','유동 주식 기준')}
+        ${_flowStat('Days to Cover',shortRatio!=null?shortRatio.toFixed(1)+'일':'—','평균 거래량으로 환매까지')}
+        ${_flowStat('전월 대비',shortDeltaPct!=null?(shortDeltaPct>=0?'+':'')+shortDeltaPct.toFixed(1)+'%':'—',shortDelta!=null?(shortDelta>=0?'+':'')+fmtBigSh(shortDelta)+'주':'')}
+      </div>
+      <div class="mini-note">
+        ${shortPctOfFloat!=null&&shortPctOfFloat>0.20?'⚠️ Float 대비 20% 초과 — 매우 높은 공매도. 숏스퀴즈 가능성도 함께 고려.':''}
+        ${shortPctOfFloat!=null&&shortPctOfFloat>0.10&&shortPctOfFloat<=0.20?'🔸 Float 대비 10~20% — 공매도 압력이 큰 편.':''}
+        ${shortPctOfFloat!=null&&shortPctOfFloat<=0.10?'🟢 Float 대비 10% 이하 — 일반적인 수준.':''}
+      </div>
+    </div>
+  `:`<div class="card"><div class="empty-state">Yahoo 공개 API에서 공매도 정보를 가져오지 못했습니다. (FINRA 공시 갱신 주기 또는 ETF/소형주 미공개)</div></div>`;
+
+  box.innerHTML=`${shortCard}${anomalyCard}<div class="disclaimer">미국 공매도 잔고는 FINRA가 <strong>2주에 1회</strong> 발표하며 시계열 차트는 본 화면에 미포함입니다. 시계열이 필요하면 NYSE/NASDAQ 공식 페이지를 참고하세요.</div>`;
+}
+
+// 탭 lazy 로드 상태 — run() 호출 시 매번 갱신
+let _tabState=null;
 
 // ─── 입력/키보드/외부클릭 핸들러 (자동완성 + 분석 트리거) ────────────────────
 (function(){
