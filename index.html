@@ -1081,7 +1081,7 @@ async function loadFundamental(ticker,opts={}){
     const stmtAssets=v(bsLast.totalAssets);
     const stmtLiabilities=v(bsLast.totalLiab)||v(bsLast.totalLiabilities);
     // totalDebt(=장단기 합)을 우선 사용 — longTermDebt만 잡으면 단기 부채 누락
-    const stmtDebt=v(bsLast.totalDebt)??((v(bsLast.longTermDebt)||0)+(v(bsLast.shortTermDebt)||0))||null;
+    const stmtDebt=v(bsLast.totalDebt)??(((v(bsLast.longTermDebt)||0)+(v(bsLast.shortTermDebt)||0))||null);
     const calcROE=stmtNetIncome!=null&&stmtSE!=null&&stmtSE!==0?stmtNetIncome/stmtSE:null;
     const calcROA=stmtNetIncome!=null&&stmtAssets!=null&&stmtAssets!==0?stmtNetIncome/stmtAssets:null;
     const calcProfitM=stmtNetIncome!=null&&stmtRevenue!=null&&stmtRevenue!==0?stmtNetIncome/stmtRevenue:null;
@@ -1196,6 +1196,9 @@ async function loadFundamental(ticker,opts={}){
 
     // ─── 최종 값 sanity 검증: 명백히 비현실적인 값은 null로 ─────────────────────
     // (네이버/Finviz 정규식이 다른 필드 숫자를 잘못 매칭하는 케이스 차단)
+    // Yahoo 2024년 변경: 일부 응답에서 dividendYield를 비율(0.025) 대신 퍼센트(2.5)로 반환.
+    // 0.20(20%) 초과 ~ 30 이하면 퍼센트 형식으로 간주해 ÷100 보정 후 sanity 검사 통과시킴.
+    if(divY!=null&&divY>0.20&&divY<=30)divY=divY/100;
     if(divY!=null&&(divY<0||divY>0.20))divY=null;          // 배당수익률 >20% 비현실적 (배당성향 오인)
     // 적자 성장주(예: IONQ)도 진짜 값을 통과시킨다.
     // 상한은 잘못된 정규식 매칭 차단용으로 좁게 유지하고, 하한만 크게 완화.
