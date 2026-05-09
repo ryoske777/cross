@@ -180,44 +180,148 @@ const PROXIES=[
   u=>'https://thingproxy.freeboard.io/fetch/'+u,
 ];
 
-async function fetchJSON(url){
-  let lastErr;
-  for(const p of PROXIES){
-    try{
-      const r=await fetch(p(url),{cache:'no-store'});
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      const t=await r.text();
-      const j=JSON.parse(t);
-      if(!j||typeof j!=='object') throw new Error('empty response');
-      return j;
-    }catch(e){lastErr=e}
+// 프록시 레이싱: 첫 프록시 즉시 발사, 나머지는 220ms 간격 점진 발사 → 첫 성공 채택.
+// 한 곳이 죽거나 느려도 다른 프록시가 곧 응답하면 전체 대기시간이 "가장 빠른 프록시"로 수렴.
+const PROXY_STAGGER_MS=220;
+async function racingFetch(url,validate){
+  const ctrls=PROXIES.map(()=>new AbortController());
+  const timers=[];
+  const launch=i=>fetch(PROXIES[i](url),{signal:ctrls[i].signal,cache:'no-store'})
+    .then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.text()})
+    .then(t=>{if(validate)validate(t);return t}); // 잘못된 본문이면 reject → 다른 racer가 채택됨
+  const racers=PROXIES.map((_,i)=>{
+    if(i===0)return launch(0);
+    return new Promise((resolve,reject)=>{
+      const t=setTimeout(()=>launch(i).then(resolve,reject),PROXY_STAGGER_MS*i);
+      timers.push(t);
+      ctrls[i].signal.addEventListener('abort',()=>{clearTimeout(t);reject(new DOMException('aborted','AbortError'))});
+    });
+  });
+  try{
+    const txt=await Promise.any(racers);
+    ctrls.forEach(c=>c.abort());
+    timers.forEach(t=>clearTimeout(t));
+    return txt;
+  }catch(e){
+    ctrls.forEach(c=>c.abort());
+    timers.forEach(t=>clearTimeout(t));
+    const errs=(e&&e.errors)||[e];
+    throw errs[errs.length-1]||new Error('all proxies failed');
   }
-  throw lastErr||new Error('all proxies failed');
 }
-async function fetchText(url){
-  let lastErr;
-  for(const p of PROXIES){
+
+// ─── 응답 캐시 (localStorage, TTL + Stale-While-Revalidate) ──────────────────
+// URL → {t: timestamp_ms, v: body_text}. 키는 원본 URL(프록시 미포함).
+const CACHE_KEY='momcheck.cache.v1';
+const CACHE_MAX_TOTAL=4*1024*1024; // 4MB
+const CACHE_MAX_ITEM=1*1024*1024;  // 1MB
+let _cacheMem=null;
+function _loadCache(){
+  if(_cacheMem)return _cacheMem;
+  try{const raw=localStorage.getItem(CACHE_KEY);_cacheMem=raw?JSON.parse(raw):{}}catch(_){_cacheMem={}}
+  return _cacheMem;
+}
+function _saveCache(){
+  try{localStorage.setItem(CACHE_KEY,JSON.stringify(_cacheMem||{}))}
+  catch(_){
+    // quota 초과 시 가장 오래된 절반 evict 후 재시도
     try{
-      const r=await fetch(p(url),{cache:'no-store'});
-      if(!r.ok) throw new Error('HTTP '+r.status);
-      return await r.text();
-    }catch(e){lastErr=e}
+      const c=_cacheMem||{};
+      const ents=Object.entries(c).sort((a,b)=>(a[1].t||0)-(b[1].t||0));
+      for(let i=0;i<Math.floor(ents.length/2);i++)delete c[ents[i][0]];
+      localStorage.setItem(CACHE_KEY,JSON.stringify(c));
+    }catch(__){}
   }
-  throw lastErr||new Error('all proxies failed');
 }
+function _enforceCacheBudget(){
+  const c=_cacheMem||{};
+  let total=0;const sizes=[];
+  for(const k in c){
+    const s=k.length+(c[k].v?c[k].v.length:0)+32;
+    sizes.push([k,s,c[k].t||0]); total+=s;
+  }
+  if(total<=CACHE_MAX_TOTAL)return;
+  sizes.sort((a,b)=>a[2]-b[2]);
+  let i=0;
+  while(total>CACHE_MAX_TOTAL&&i<sizes.length){delete c[sizes[i][0]];total-=sizes[i][1];i++}
+}
+function cacheGet(url){return _loadCache()[url]||null}
+function cacheSet(url,body){
+  if(typeof body!=='string')return;
+  if(body.length>CACHE_MAX_ITEM)return;
+  const c=_loadCache();
+  c[url]={t:Date.now(),v:body};
+  _enforceCacheBudget();
+  _saveCache();
+}
+
+// SWR 백그라운드 갱신 — 동일 URL 동시 요청 한 건으로 합치기
+const _swrInflight={};
+function _scheduleRefresh(url,validate){
+  if(_swrInflight[url])return _swrInflight[url];
+  _swrInflight[url]=racingFetch(url,validate)
+    .then(t=>{cacheSet(url,t);return t})
+    .catch(()=>null)
+    .finally(()=>{delete _swrInflight[url]});
+  return _swrInflight[url];
+}
+
+// 마지막 응답이 stale였는지 표시 (UI 인디케이터용). 호출자가 consumeStaleFlag로 회수.
+let _staleHit=false;
+function consumeStaleFlag(){const s=_staleHit;_staleHit=false;return s}
+
+// 정책: ttlMs 이내 → 즉시. ttlMs~ttlMs+swrMs → stale 즉시 + 백그라운드 갱신. 그 외 → 네트워크.
+// validate(body): 캐시 본문 또는 racing 응답을 검증. 실패 시 캐시 무시 + 다른 racer 채택.
+async function cachedFetch(url,policy,validate){
+  const{ttlMs=0,swrMs=0}=policy||{};
+  const ent=cacheGet(url);
+  const now=Date.now();
+  const cacheValid=ent&&(()=>{try{if(validate)validate(ent.v);return true}catch(_){return false}})();
+  if(cacheValid&&(now-ent.t)<=ttlMs)return ent.v;
+  if(cacheValid&&ttlMs+swrMs>0&&(now-ent.t)<=ttlMs+swrMs){
+    _staleHit=true;
+    _scheduleRefresh(url,validate);
+    return ent.v;
+  }
+  const body=await racingFetch(url,validate);
+  cacheSet(url,body);
+  return body;
+}
+
+const _validateJSON=t=>{const j=JSON.parse(t);if(!j||typeof j!=='object')throw new Error('empty response');};
+async function fetchJSON(url,policy){
+  const body=await cachedFetch(url,policy,_validateJSON);
+  return JSON.parse(body);
+}
+async function fetchText(url,policy){
+  return await cachedFetch(url,policy);
+}
+
+// 정책 프리셋 (사용자 선택: 더 길게)
+const TTL={
+  CHART:    {ttlMs:24*60*60*1000, swrMs:48*60*60*1000}, // 24h / +48h SWR
+  REF_CHART:{ttlMs: 2*60*60*1000, swrMs:22*60*60*1000}, // 2h / +22h SWR
+  QUOTE:    {ttlMs: 6*60*60*1000, swrMs:18*60*60*1000}, // 6h / +18h SWR
+  HTML:     {ttlMs:24*60*60*1000, swrMs:48*60*60*1000}, // 24h / +48h SWR
+};
+const REF_TICKERS=new Set(['SPY','QQQ','^KS11','^KQ11']);
+function chartPolicy(ticker){return REF_TICKERS.has(String(ticker||'').toUpperCase())?TTL.REF_CHART:TTL.CHART}
 
 // ─── Korean stock utilities ───────────────────────────────────────────────────
 function isKoreanTicker(t){return /^\d{6}$/.test(String(t||'').trim())}
 
 async function resolveKoreanTicker(code){
-  for(const sfx of ['.KS','.KQ']){
-    try{
-      const url=`https://query1.finance.yahoo.com/v8/finance/chart/${code}${sfx}?range=5d&interval=1d`;
-      const j=await fetchJSON(url);
-      if(j?.chart?.result?.[0]) return{yahooTicker:code+sfx,market:sfx==='.KS'?'KOSPI':'KOSDAQ'};
-    }catch(_){}
-  }
-  throw new Error('KOSPI/KOSDAQ 모두에서 해당 종목을 찾을 수 없습니다 (코드를 확인해 주세요)');
+  // 두 시장을 순차가 아니라 병렬로 확인 — KOSPI 미존재 → 즉시 KOSDAQ 결과 사용.
+  // 시장 식별만 필요해서 5일치 차트(가벼움)를 캐시 정책 적용해 받음.
+  const tries=['.KS','.KQ'].map(sfx=>{
+    const url=`https://query1.finance.yahoo.com/v8/finance/chart/${code}${sfx}?range=5d&interval=1d`;
+    return fetchJSON(url,TTL.QUOTE).then(j=>{
+      if(j?.chart?.result?.[0])return{yahooTicker:code+sfx,market:sfx==='.KS'?'KOSPI':'KOSDAQ'};
+      throw new Error('not found');
+    });
+  });
+  try{return await Promise.any(tries)}
+  catch(_){throw new Error('KOSPI/KOSDAQ 모두에서 해당 종목을 찾을 수 없습니다 (코드를 확인해 주세요)')}
 }
 
 function fmtPriceKRW(n){
@@ -236,7 +340,7 @@ function fmtBigKRW(n){
 async function getNaverFinanceData(code){
   try{
     const url=`https://finance.naver.com/item/main.naver?code=${encodeURIComponent(code)}`;
-    const html=await fetchText(url);
+    const html=await fetchText(url,TTL.HTML);
     const doc=new DOMParser().parseFromString(html,'text/html');
     const m={};
     const text=htmlToPlainText(html);
@@ -489,8 +593,9 @@ function switchTab(name){
 
 async function getChart(ticker){
   const url=`https://query1.finance.yahoo.com/v8/finance/chart/${ticker}?range=2y&interval=1d`;
+  const policy=chartPolicy(ticker);
   try{
-    const j=await fetchJSON(url);
+    const j=await fetchJSON(url,policy);
     const r=j.chart.result[0];
     const ts=r.timestamp;
     const c=r.indicators.quote[0].close;
@@ -504,7 +609,7 @@ async function getChart(ticker){
     // Stooq 백업 — 미국 주식만 지원
     if(/\.(KS|KQ)$/i.test(ticker)) throw e;
     const sym=ticker.toLowerCase()+'.us';
-    const t=await fetchText(`https://stooq.com/q/d/l/?s=${sym}&i=d`);
+    const t=await fetchText(`https://stooq.com/q/d/l/?s=${sym}&i=d`,policy);
     const lines=t.trim().split('\n').slice(1);
     return lines.map(l=>{const p=l.split(',');return{d:new Date(p[0]),c:+p[4],v:+p[5]||0}}).filter(x=>!isNaN(x.c)).slice(-520);
   }
@@ -519,15 +624,16 @@ async function getQuoteSummary(ticker){
     `https://query1.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${slim}`,
     `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${slim}`,
   ];
-  let lastErr;
-  for(const url of attempts){
-    try{
-      const j=await fetchJSON(url);
+  // 4개 엔드포인트를 동시 발사 → 첫 성공 채택. 직렬 try의 타임아웃 누적 제거.
+  try{
+    const row=await Promise.any(attempts.map(async url=>{
+      const j=await fetchJSON(url,TTL.QUOTE);
       const row=j?.quoteSummary?.result?.[0];
-      if(row) return row;
-      lastErr=new Error(j?.quoteSummary?.error?.description||'no quoteSummary data');
-    }catch(e){lastErr=e}
-  }
+      if(!row)throw new Error(j?.quoteSummary?.error?.description||'no quoteSummary data');
+      return row;
+    }));
+    if(row)return row;
+  }catch(_){}
   // 최후 수단: 모듈을 그룹별로 병렬 요청 후 병합 (하나의 모듈이 전체 요청을 막을 때 대응)
   // 손익계산서·재무상태표 포함 — financialData 모듈이 없을 때 직접 계산용
   const modGroups=[
@@ -542,19 +648,19 @@ async function getQuoteSummary(ticker){
   await Promise.allSettled(modGroups.flatMap(mods=>
     ['query1','query2'].map(async host=>{
       try{
-        const j=await fetchJSON(`https://${host}.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${mods}`);
+        const j=await fetchJSON(`https://${host}.finance.yahoo.com/v10/finance/quoteSummary/${ticker}?modules=${mods}`,TTL.QUOTE);
         const row=j?.quoteSummary?.result?.[0];
         if(row) Object.assign(merged,row);
       }catch(_){}
     })
   ));
   if(Object.keys(merged).length>0) return merged;
-  throw lastErr||new Error('no quoteSummary data');
+  throw new Error('no quoteSummary data');
 }
 
 async function getQuote(ticker){
   const url=`https://query1.finance.yahoo.com/v7/finance/quote?symbols=${encodeURIComponent(ticker)}`;
-  const j=await fetchJSON(url);
+  const j=await fetchJSON(url,TTL.QUOTE);
   const row=j?.quoteResponse?.result?.[0];
   if(!row) throw new Error('no quote data');
   return row;
@@ -563,7 +669,7 @@ async function getQuote(ticker){
 async function getFinvizData(ticker){
   try{
     const url=`https://finviz.com/quote.ashx?t=${encodeURIComponent(ticker)}&ty=c&ta=1&p=d`;
-    const html=await fetchText(url);
+    const html=await fetchText(url,TTL.HTML);
     return parseFinvizHtml(html);
   }catch(_){return null}
 }
@@ -572,7 +678,7 @@ async function getKoreanStockDetailData(code){
   // 한국 주식의 상세 데이터를 여러 소스에서 수집 (선택사항 — 실패해도 무방)
   try{
     const overviewUrl=`https://finance.naver.com/item/coinfo.naver?code=${encodeURIComponent(code)}`;
-    const html=await fetchText(overviewUrl);
+    const html=await fetchText(overviewUrl,TTL.HTML);
     if(!html||html.length<100)return null; // 최소 길이 확인
 
     const doc=new DOMParser().parseFromString(html,'text/html');
@@ -617,7 +723,7 @@ async function getStockAnalysisData(ticker){
   try{
     const slug=String(ticker||'').toLowerCase().replace('.','-');
     const url=`https://stockanalysis.com/stocks/${encodeURIComponent(slug)}/statistics/`;
-    const html=await fetchText(url);
+    const html=await fetchText(url,TTL.HTML);
     return parseStockAnalysisHtml(html);
   }catch(_){return null}
 }
@@ -851,7 +957,7 @@ async function run(){
     ref1Label='SPY'; ref2Label='QQQ';
   }
 
-  status.innerHTML='<span class="loader"></span> 데이터 불러오는 중...';
+  status.innerHTML='<span class="loader"></span> 차트 데이터 가져오는 중...';
 
   let chart,ref1,ref2;
   try{
@@ -865,6 +971,7 @@ async function run(){
   }
   // 차트 로드 성공한 시점에만 최근 본 종목에 추가 (잘못된 티커가 히스토리에 남지 않도록)
   addToRecent(rawTicker);
+  status.innerHTML='<span class="loader"></span> 시그널 계산 중...';
 
   const closes=chart.map(x=>x.c);
   const vols=chart.map(x=>x.v);
@@ -946,13 +1053,35 @@ async function run(){
   else{verdict='🔻 약세';bg='var(--bad-bg)';}
   document.getElementById('summary').innerHTML=`<div class="summary" style="background:${bg}">${verdict}<div class="summary-sub">가중 점수 ${earnedW} / ${totalW}</div></div>`;
 
-  await loadFundamental(yahooTicker,{isKorean:isKr,code:rawTicker,market:krMarket});
-
+  // 차트·시그널이 준비되면 결과 패널을 즉시 노출 — 펀더멘털은 자체 로더로 비동기 로드.
+  // 펀더멘털 카드(#fund-content) 내부에 이미 로더가 있어 사용자가 진행 상태를 인지 가능.
   status.style.display='none';
   document.getElementById('results').style.display='block';
+  showStaleNoticeIfAny();
+  // chart를 넘겨 fallback 경로에서 차트 재요청 방지.
+  loadFundamental(yahooTicker,{isKorean:isKr,code:rawTicker,market:krMarket},chart)
+    .finally(()=>showStaleNoticeIfAny());
 }
 
-async function loadFundamental(ticker,opts={}){
+// stale 캐시가 사용된 경우 한 번 짧은 안내를 띄움 (있을 때만).
+function showStaleNoticeIfAny(){
+  if(!consumeStaleFlag())return;
+  let el=document.getElementById('stale-notice');
+  if(!el){
+    el=document.createElement('div');
+    el.id='stale-notice';
+    el.style.cssText='font-size:12px;color:var(--text-tertiary);margin:8px 0;padding:6px 10px;background:rgba(0,0,0,.03);border-radius:8px;display:inline-block';
+    const results=document.getElementById('results');
+    if(results&&results.parentNode)results.parentNode.insertBefore(el,results);
+  }
+  el.textContent='⏱ 캐시된 데이터로 즉시 표시됨 · 백그라운드에서 갱신 중';
+  el.style.display='inline-block';
+  // 5초 후 자동 숨김
+  clearTimeout(el._timer);
+  el._timer=setTimeout(()=>{el.style.display='none'},5000);
+}
+
+async function loadFundamental(ticker,opts={},chartFromCaller){
   const{isKorean=false,code='',market=''}=opts;
   const box=document.getElementById('fund-content');
   box.innerHTML='<div class="card"><span class="loader"></span> 펀더멘털 불러오는 중...</div>';
@@ -961,7 +1090,8 @@ async function loadFundamental(ticker,opts={}){
   const fallbackFundamental=async()=>{
     let q={};
     try{q=await getQuote(ticker)}catch(_){q={}}
-    const ch=await getChart(ticker);
+    // 호출자(run)에서 이미 받은 차트 재사용 — 없으면 폴백 시 1회 더 받음.
+    const ch=chartFromCaller&&chartFromCaller.length?chartFromCaller:await getChart(ticker);
     const cls=ch.map(x=>x.c);
     const last=cls[cls.length-1];
     const y0=cls[0];
