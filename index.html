@@ -1149,7 +1149,9 @@ function renderPriceChart(containerId,chart,ma50S,ma200S,opts={}){
   for(const v of m200)if(v!=null){if(v<lo)lo=v;if(v>hi)hi=v}
   const pad=(hi-lo)*0.05||1;
   lo-=pad;hi+=pad;
-  const W=600,H=180,padL=44,padR=8,padT=6,padB=18;
+  // padL은 한국 종목(통화 기호+긴 숫자)에서 좌측 라벨 잘림 방지를 위해 충분히 확보.
+  // 큰 숫자는 만원/K 단위로 축약해 가독성도 향상.
+  const W=600,H=180,padL=opts.isKorean?56:48,padR=8,padT=6,padB=18;
   const x=i=>padL+(i/(N-1))*(W-padL-padR);
   const y=v=>padT+(1-(v-lo)/(hi-lo))*(H-padT-padB);
   const path=arr=>{
@@ -1163,7 +1165,11 @@ function renderPriceChart(containerId,chart,ma50S,ma200S,opts={}){
   };
   const startDate=chart[start].d,endDate=chart[chart.length-1].d;
   const fmt=d=>d.toLocaleDateString(opts.isKorean?'ko-KR':'en-US',{year:'2-digit',month:'short'});
-  const fmtP=opts.isKorean?(v=>'₩'+Math.round(v).toLocaleString('ko-KR')):(v=>'$'+v.toFixed(2));
+  // 한국 가격이 100만원 이상이면 만원 단위(₩176.1만), 미만이면 원 단위(₩102,075).
+  // 미국 가격이 1만 달러 이상이면 K 단위($601.0K), 미만이면 그대로($123.45).
+  const fmtP=opts.isKorean
+    ?(hi>=1e6?(v=>'₩'+(v/1e4).toFixed(1)+'만'):(v=>'₩'+Math.round(v).toLocaleString('ko-KR')))
+    :(hi>=1e4?(v=>'$'+(v/1e3).toFixed(1)+'K'):(v=>'$'+v.toFixed(2)));
   // y축 그리드 3선
   const grid=[];
   for(let i=0;i<=3;i++){
@@ -1182,7 +1188,7 @@ function renderPriceChart(containerId,chart,ma50S,ma200S,opts={}){
   </svg>`;
 }
 // 거래량 막대 — 최근 60일, 직전 종가 대비 up/down 색상 분기
-function renderVolumeChart(containerId,chart){
+function renderVolumeChart(containerId,chart,opts={}){
   const el=document.getElementById(containerId);
   if(!el||!chart||chart.length<2)return;
   const N=Math.min(chart.length,60);
@@ -1191,7 +1197,8 @@ function renderVolumeChart(containerId,chart){
   let maxV=0;
   for(const x of slice)if(x.v>maxV)maxV=x.v;
   if(maxV<=0){el.innerHTML='';return}
-  const W=600,H=70,padL=44,padR=8,padT=4,padB=4;
+  // padL은 가격 차트와 동일하게 — 좌측 정렬을 맞춰 시각적 통일성 유지
+  const W=600,H=70,padL=opts.isKorean?56:48,padR=8,padT=4,padB=4;
   const bw=(W-padL-padR)/N*0.8;
   const gap=(W-padL-padR)/N*0.2;
   const bars=[];
@@ -1344,8 +1351,11 @@ async function run(){
   sig(ma200&&last>ma200,ma200&&last<ma200,'200일선 위',ma200?fmtP(ma200):'—',3);
   // 골든/데드 크로스: "최근 10일 내 교차" 이벤트만 인정 (단순 상태가 아님)
   // 상태(ma50>ma200)는 별도 가중치 1로 분리해서 점수 왜곡 줄임
-  sig(goldenCross===true,deadCross===true,'골든/데드 크로스(최근 교차)',goldenCross===true?'골든':deadCross===true?'데드':'없음',3);
-  sig(ma50&&ma200&&ma50>ma200,ma50&&ma200&&ma50<ma200,'50일선이 200일선 위(상태)','',1);
+  sig(goldenCross===true,deadCross===true,
+      '이동평균선 교차 (최근 10일)',
+      goldenCross===true?'🌟 골든크로스 (강세 신호)':deadCross===true?'⚠️ 데드크로스 (약세 신호)':'최근 10일 내 교차 없음',
+      3);
+  sig(ma50&&ma200&&ma50>ma200,ma50&&ma200&&ma50<ma200,'50일선이 200일선 위(추세 상태)','',1);
   sig(ma50&&last>ma50,ma50&&last<ma50,'50일선 위',ma50?fmtP(ma50):'—',2);
   // RSI: 추세 추종에서 70 이상도 강세 지속 신호 — 50 이상이면 양호로 판단
   // 단, 80 초과는 과열로 별도 표시 (점수에는 미반영)
@@ -1384,7 +1394,7 @@ async function run(){
     const ma200S=smaSeries(closes,200);
     const rsiArr=rsiSeries(closes,14);
     renderPriceChart('chart-price',chart,ma50S,ma200S,{isKorean:isKr});
-    renderVolumeChart('chart-volume',chart);
+    renderVolumeChart('chart-volume',chart,{isKorean:isKr});
     renderRsiChart('chart-rsi',rsiArr);
   });
   // chart를 넘겨 fallback 경로에서 차트 재요청 방지.
