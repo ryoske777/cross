@@ -64,6 +64,13 @@ button.primary:hover{background:var(--primary-hover)}
 .ref-line{stroke:#9ca3af;stroke-dasharray:3 3;stroke-width:1;fill:none}
 .chart-axis{font-size:10px;fill:var(--text-tertiary)}
 .chart-grid{stroke:rgba(0,0,0,0.05);stroke-width:1}
+.chart-caption{font-size:11px;color:var(--text-tertiary);margin-top:8px;padding-left:4px;line-height:1.5}
+.chart-caption .cap-up{color:var(--good);font-weight:700}
+.chart-caption .cap-down{color:var(--bad);font-weight:700}
+.signal-legend{font-size:11.5px;font-weight:500;margin-left:8px;color:var(--text-tertiary)}
+.signal-legend .lg-good{color:var(--good);font-weight:700}
+.signal-legend .lg-bad{color:var(--bad);font-weight:700}
+.signal-legend .lg-neutral{color:var(--neutral);font-weight:700}
 .legend{font-size:12px;color:var(--text-tertiary);margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap}
 .legend span::before{content:"";display:inline-block;width:16px;height:3px;margin-right:6px;vertical-align:middle;border-radius:10px}
 .legend .p::before{background:var(--price)}
@@ -189,13 +196,14 @@ button.primary:hover{background:var(--primary-hover)}
 <div class="legend"><span class="p">현재가</span><span class="m50">50일 이동평균</span><span class="m200">200일 이동평균</span></div>
 <div id="chart-price" class="svg-chart"></div>
 <div id="chart-volume" class="svg-chart svg-chart-vol"></div>
+<div class="chart-caption">최근 60일 거래량 · <span class="cap-up">초록</span> 가격 상승일 / <span class="cap-down">빨강</span> 하락일</div>
 </div>
 <div class="card">
 <div class="section-title">RSI(14)</div>
 <div id="chart-rsi" class="svg-chart svg-chart-rsi"></div>
 </div>
 <div class="card">
-<div class="section-title">종합 신호</div>
+<div class="section-title">종합 신호 <span class="signal-legend"><span class="lg-good">✓ 긍정</span> · <span class="lg-bad">✗ 부정</span> · <span class="lg-neutral">• 중립</span></span></div>
 <div id="signals"></div>
 <div id="summary"></div>
 </div>
@@ -1212,7 +1220,6 @@ function renderVolumeChart(containerId,chart,opts={}){
   }
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="거래량 차트">
     ${bars.join('')}
-    <text class="chart-axis" x="${padL}" y="${H-1}" text-anchor="start">최근 ${N}일 거래량</text>
   </svg>`;
 }
 // RSI(14) 라인 차트 — 30/70 기준선 포함
@@ -1347,26 +1354,29 @@ async function run(){
   ].map(m=>`<div class="metric"><div class="metric-label">${m[0]}</div><div class="metric-value">${m[1]}</div><div class="metric-note">${m[2]}</div></div>`).join('');
 
   const sigs=[];
+  // sig(ok, bad, txt, val, w):
+  //   ok=true → ✓ 초록 (긍정 신호), bad=true → ✗ 빨강 (부정 신호), 둘 다 false → • 회색 (중립)
+  //   라벨(txt)은 사실 그대로 표기, 판정은 색·아이콘이 표시. "강세/양호/활발" 같은 평가 단어는 라벨에서 제거.
   const sig=(ok,bad,txt,val,w=1)=>sigs.push({ok,bad,txt,val,w});
-  sig(ma200&&last>ma200,ma200&&last<ma200,'200일선 위',ma200?fmtP(ma200):'—',3);
+  sig(ma200&&last>ma200,ma200&&last<ma200,'장기 추세선 위 (200일선)',ma200?fmtP(ma200):'—',3);
   // 골든/데드 크로스: "최근 10일 내 교차" 이벤트만 인정 (단순 상태가 아님)
   // 상태(ma50>ma200)는 별도 가중치 1로 분리해서 점수 왜곡 줄임
   sig(goldenCross===true,deadCross===true,
       '이동평균선 교차 (최근 10일)',
       goldenCross===true?'🌟 골든크로스 (강세 신호)':deadCross===true?'⚠️ 데드크로스 (약세 신호)':'최근 10일 내 교차 없음',
       3);
-  sig(ma50&&ma200&&ma50>ma200,ma50&&ma200&&ma50<ma200,'50일선이 200일선 위(추세 상태)','',1);
-  sig(ma50&&last>ma50,ma50&&last<ma50,'50일선 위',ma50?fmtP(ma50):'—',2);
+  sig(ma50&&ma200&&ma50>ma200,ma50&&ma200&&ma50<ma200,'단기선이 장기선 위 (정배열)','',1);
+  sig(ma50&&last>ma50,ma50&&last<ma50,'단기 추세선 위 (50일선)',ma50?fmtP(ma50):'—',2);
   // RSI: 추세 추종에서 70 이상도 강세 지속 신호 — 50 이상이면 양호로 판단
   // 단, 80 초과는 과열로 별도 표시 (점수에는 미반영)
-  sig(r!=null&&r>=50,r!=null&&r<40,'RSI 50 이상(강세 영역)',r!=null?r.toFixed(1):'—',2);
-  sig(r3m!=null&&r3m>5,r3m!=null&&r3m<0,'3개월 수익률 강세',fmtPct(r3m),2);
-  sig(r6m!=null&&r6m>10,r6m!=null&&r6m<0,'6개월 수익률 강세',fmtPct(r6m),2);
-  sig(r1y!=null&&r1y>20,r1y!=null&&r1y<0,'1년 수익률 강세',fmtPct(r1y),2);
-  sig(rsRef1!=null&&rsRef1>0,rsRef1!=null&&rsRef1<0,ref1Label+' 대비 강세',fmtPct(rsRef1),2);
-  sig(rsRef2!=null&&rsRef2>0,rsRef2!=null&&rsRef2<0,ref2Label+' 대비 강세',fmtPct(rsRef2),2);
-  sig(r1m!=null&&r1m>0,r1m!=null&&r1m<0,'1개월 수익률 양호',fmtPct(r1m),1);
-  sig(volRatio!=null&&volRatio>1.2,volRatio!=null&&volRatio<0.7,'최근 5일 거래량 활발',volRatio?volRatio.toFixed(2)+'x':'—',1);
+  sig(r!=null&&r>=50,r!=null&&r<40,'단기 매수세 (RSI 50 이상)',r!=null?r.toFixed(1):'—',2);
+  sig(r3m!=null&&r3m>5,r3m!=null&&r3m<0,'3개월 수익률',fmtPct(r3m),2);
+  sig(r6m!=null&&r6m>10,r6m!=null&&r6m<0,'6개월 수익률',fmtPct(r6m),2);
+  sig(r1y!=null&&r1y>20,r1y!=null&&r1y<0,'1년 수익률',fmtPct(r1y),2);
+  sig(rsRef1!=null&&rsRef1>0,rsRef1!=null&&rsRef1<0,ref1Label+' 대비 수익률',fmtPct(rsRef1),2);
+  sig(rsRef2!=null&&rsRef2>0,rsRef2!=null&&rsRef2<0,ref2Label+' 대비 수익률',fmtPct(rsRef2),2);
+  sig(r1m!=null&&r1m>0,r1m!=null&&r1m<0,'1개월 수익률',fmtPct(r1m),1);
+  sig(volRatio!=null&&volRatio>1.2,volRatio!=null&&volRatio<0.7,'최근 5일 거래량 (20일 평균 대비)',volRatio?volRatio.toFixed(2)+'x':'—',1);
 
   document.getElementById('signals').innerHTML=sigs.map(s=>{
     const cls=s.ok?'signal-good':s.bad?'signal-bad':'signal-neutral';
