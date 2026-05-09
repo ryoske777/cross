@@ -14,9 +14,18 @@ header{margin-bottom:24px;text-align:center}
 h1{font-size:26px;letter-spacing:-0.03em}
 .subtitle{color:var(--text-secondary);font-size:13px;margin-top:6px}
 .card{background:var(--surface);border-radius:12px;padding:20px;margin-bottom:14px;border:1px solid var(--border);box-shadow:0 2px 8px rgba(0,0,0,0.02)}
-.search-row{display:flex;gap:10px}
-.ticker-input{flex:1;max-width:200px;padding:12px;border-radius:8px;border:1.5px solid var(--border);font-size:16px;font-weight:700;outline:none}
+.search-row{display:flex;gap:10px;position:relative;flex-wrap:wrap}
+.ticker-input{flex:1;max-width:280px;padding:12px;border-radius:8px;border:1.5px solid var(--border);font-size:16px;font-weight:700;outline:none}
 .ticker-input:focus{border-color:var(--primary)}
+#suggest-list{position:absolute;top:100%;left:0;right:0;max-width:380px;background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-top:4px;max-height:300px;overflow-y:auto;z-index:30;box-shadow:0 6px 20px rgba(0,0,0,.10);display:none}
+#suggest-list.open{display:block}
+.suggest-item{padding:10px 12px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;font-size:13.5px;border-bottom:1px solid rgba(0,0,0,0.04);gap:10px}
+.suggest-item:last-child{border-bottom:none}
+.suggest-item:hover, .suggest-item.active{background:var(--bg)}
+.suggest-name{font-weight:700;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;min-width:0}
+.suggest-meta{color:var(--text-tertiary);font-size:11.5px;font-weight:600;flex-shrink:0;display:flex;gap:6px;align-items:center}
+.suggest-symbol{color:var(--text-secondary)}
+.suggest-empty{padding:14px 12px;color:var(--text-tertiary);font-size:12.5px;text-align:center}
 button.primary{background:var(--primary);color:#fff;border:none;padding:12px 24px;border-radius:8px;cursor:pointer;font-weight:700;font-size:15px}
 button.primary:hover{background:var(--primary-hover)}
 .quick-buttons{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center}
@@ -38,6 +47,23 @@ button.primary:hover{background:var(--primary-hover)}
 .summary{margin-top:16px;padding:18px;border-radius:12px;font-weight:850;text-align:center;font-size:19px}
 .summary-sub{font-size:13px;margin-top:6px;font-weight:500;opacity:0.86}
 .section-title{font-size:14px;font-weight:800;margin-bottom:10px;color:var(--text-secondary)}
+.sector-hint{font-size:11px;font-weight:600;color:var(--text-tertiary);background:var(--bg);padding:2px 8px;border-radius:999px;margin-left:8px;vertical-align:middle}
+.result-header{padding:8px 4px 14px 4px;font-size:18px;line-height:1.3}
+.result-header strong{font-weight:800;color:var(--text)}
+.result-header .muted{color:var(--text-tertiary);font-size:13px;margin-left:8px;font-weight:500}
+.svg-chart{width:100%;height:220px;display:block}
+.svg-chart-vol{height:80px;margin-top:6px}
+.svg-chart-rsi{height:120px}
+.svg-chart svg{width:100%;height:100%;display:block}
+.line-price{stroke:var(--price);stroke-width:1.6;fill:none;stroke-linejoin:round;stroke-linecap:round}
+.line-ma50{stroke:var(--ma50);stroke-width:1.2;fill:none}
+.line-ma200{stroke:var(--ma200);stroke-width:1.2;stroke-dasharray:4 3;fill:none}
+.line-rsi{stroke:#7c3aed;stroke-width:1.5;fill:none}
+.bar-vol-up{fill:var(--good);opacity:.65}
+.bar-vol-down{fill:var(--bad);opacity:.65}
+.ref-line{stroke:#9ca3af;stroke-dasharray:3 3;stroke-width:1;fill:none}
+.chart-axis{font-size:10px;fill:var(--text-tertiary)}
+.chart-grid{stroke:rgba(0,0,0,0.05);stroke-width:1}
 .legend{font-size:12px;color:var(--text-tertiary);margin-bottom:10px;display:flex;gap:12px;flex-wrap:wrap}
 .legend span::before{content:"";display:inline-block;width:16px;height:3px;margin-right:6px;vertical-align:middle;border-radius:10px}
 .legend .p::before{background:var(--price)}
@@ -123,8 +149,9 @@ button.primary:hover{background:var(--primary-hover)}
 
 <div class="card">
 <div class="search-row">
-<input id="ticker" class="ticker-input" placeholder="티커 입력 (예: AAPL, 005930)">
+<input id="ticker" class="ticker-input" placeholder="티커 또는 회사명 (예: AAPL, 005930, 삼성전자)" autocomplete="off">
 <button class="primary" onclick="run()">분석하기</button>
+<div id="suggest-list" role="listbox"></div>
 </div>
 <div class="quick-buttons">
 <span class="quick-flag">🇺🇸</span>
@@ -152,9 +179,20 @@ button.primary:hover{background:var(--primary-hover)}
 </div>
 
 <div id="tab-tech" class="tab-panel active">
+<div id="result-header"></div>
 <div class="card">
 <div class="section-title">핵심 지표</div>
 <div id="metrics" class="metrics"></div>
+</div>
+<div class="card">
+<div class="section-title">가격 추이 (1년)</div>
+<div class="legend"><span class="p">현재가</span><span class="m50">50일 이동평균</span><span class="m200">200일 이동평균</span></div>
+<div id="chart-price" class="svg-chart"></div>
+<div id="chart-volume" class="svg-chart svg-chart-vol"></div>
+</div>
+<div class="card">
+<div class="section-title">RSI(14)</div>
+<div id="chart-rsi" class="svg-chart svg-chart-rsi"></div>
 </div>
 <div class="card">
 <div class="section-title">종합 신호</div>
@@ -585,10 +623,107 @@ function renderRecent(){
     +'<button type="button" class="recent-clear" onclick="clearRecent()">전체 삭제</button>';
 }
 
-function setT(t){document.getElementById('ticker').value=t;run()}
+function setT(t){document.getElementById('ticker').value=t;hideSuggest();run()}
 function switchTab(name){
   document.querySelectorAll('.tab-btn').forEach(b=>b.classList.toggle('active',b.dataset.tab===name));
   document.querySelectorAll('.tab-panel').forEach(p=>p.classList.toggle('active',p.id==='tab-'+name));
+}
+
+// ─── 자동완성 (회사명/티커 검색) ─────────────────────────────────────────────
+let _searchDebounceId=0;
+let _searchAbort=null;
+let _activeSuggest=-1;
+let _currentSuggestions=[];
+function hideSuggest(){
+  const el=document.getElementById('suggest-list');
+  if(el){el.classList.remove('open');el.innerHTML=''}
+  _activeSuggest=-1;
+  _currentSuggestions=[];
+}
+// 로컬 매칭: KR_NAMES(이름·코드 양방향), KR_NAMES 코드 prefix
+function localSuggestions(q){
+  const s=String(q||'').trim();
+  if(!s)return[];
+  const sLower=s.toLowerCase();
+  const out=[];
+  // 1) 한국 회사명 부분 일치
+  for(const [name,code] of Object.entries(KR_NAME_TO_CODE)){
+    if(name.includes(s)||name.toLowerCase().includes(sLower)){
+      out.push({symbol:code,name,exch:'KRX',source:'local'});
+    }
+  }
+  // 2) 코드 prefix 매칭 (한국 6자리)
+  for(const [code,name] of Object.entries(KR_NAMES)){
+    if(code.startsWith(s)&&!out.some(x=>x.symbol===code)){
+      out.push({symbol:code,name,exch:'KRX',source:'local'});
+    }
+  }
+  return out.slice(0,6);
+}
+async function fetchYahooSuggestions(q){
+  const url=`https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=8&newsCount=0`;
+  try{
+    const j=await fetchJSON(url,{ttlMs:15*60*1000,swrMs:30*60*1000});
+    const quotes=j?.quotes||[];
+    return quotes
+      .filter(x=>x.symbol&&(x.quoteType==='EQUITY'||x.quoteType==='ETF'))
+      .map(x=>({
+        symbol:x.symbol,
+        name:x.shortname||x.longname||x.symbol,
+        exch:x.exchDisp||x.exchange||'',
+        source:'yahoo'
+      }));
+  }catch(_){return[]}
+}
+function mergeSuggestions(local,remote,limit=6){
+  const seen=new Set();
+  const out=[];
+  for(const x of local){if(!seen.has(x.symbol)){seen.add(x.symbol);out.push(x)}}
+  for(const x of remote){if(!seen.has(x.symbol)){seen.add(x.symbol);out.push(x)}}
+  return out.slice(0,limit);
+}
+function renderSuggestions(items){
+  const el=document.getElementById('suggest-list');
+  if(!el)return;
+  _currentSuggestions=items||[];
+  if(!items||!items.length){el.innerHTML='';el.classList.remove('open');return}
+  _activeSuggest=-1;
+  el.innerHTML=items.map((x,i)=>
+    `<div class="suggest-item" data-i="${i}" role="option">
+       <span class="suggest-name">${escAttr(x.name)}</span>
+       <span class="suggest-meta"><span class="suggest-symbol">${escAttr(x.symbol)}</span>${x.exch?`<span>· ${escAttr(x.exch)}</span>`:''}</span>
+     </div>`
+  ).join('');
+  el.classList.add('open');
+}
+function pickSuggestion(i){
+  const x=_currentSuggestions[i];
+  if(!x)return;
+  setT(x.symbol);
+}
+function moveSuggest(delta){
+  if(!_currentSuggestions.length)return;
+  _activeSuggest=(_activeSuggest+delta+_currentSuggestions.length+1)%(_currentSuggestions.length+1)-1;
+  // -1 ~ length-1 순환 (인풋 자체 포커스 상태 포함)
+  const items=document.querySelectorAll('#suggest-list .suggest-item');
+  items.forEach((el,idx)=>el.classList.toggle('active',idx===_activeSuggest));
+  if(_activeSuggest>=0&&items[_activeSuggest])items[_activeSuggest].scrollIntoView({block:'nearest'});
+}
+async function handleSearchInput(q){
+  // 1차: 로컬 결과 즉시 그리기 — 동기, 0ms
+  const local=localSuggestions(q);
+  if(local.length)renderSuggestions(local);
+  // 2차: Yahoo 결과 머지 — debounced
+  if(_searchAbort)_searchAbort.abort();
+  clearTimeout(_searchDebounceId);
+  if(q.length<1){hideSuggest();return}
+  _searchDebounceId=setTimeout(async()=>{
+    const myAbort=new AbortController();
+    _searchAbort=myAbort;
+    const remote=await fetchYahooSuggestions(q);
+    if(myAbort.signal.aborted)return; // 다음 키 입력에 의해 취소됨
+    renderSuggestions(mergeSuggestions(local,remote,6));
+  },200);
 }
 
 async function getChart(ticker){
@@ -604,6 +739,7 @@ async function getChart(ticker){
     for(let i=0;i<ts.length;i++){
       if(c[i]!=null) out.push({d:new Date(ts[i]*1000),c:c[i],v:v[i]||0});
     }
+    out._meta=r.meta||null; // 차트 응답 메타(shortName/longName 등) — 회사명 즉시 표시용
     return out;
   }catch(e){
     // Stooq 백업 — 미국 주식만 지원
@@ -740,6 +876,58 @@ const KR_NAMES={
   '247540':'에코프로비엠','086520':'에코프로','138040':'메리츠금융지주','005490':'POSCO홀딩스'
 };
 function getKoreanStockName(code){return KR_NAMES[String(code||'')]||null}
+// 한국 회사명 → 코드 역방향 룩업 (자동완성용)
+const KR_NAME_TO_CODE=Object.fromEntries(Object.entries(KR_NAMES).map(([c,n])=>[n,c]));
+
+// ─── 섹터별 점수 임계값 (11 GICS 섹터) ───────────────────────────────────────
+// 미국 시장 기준값. 한국은 KR_SCALE을 곱해 도출 (낮은 multiple, 높은 부채).
+// 임계값 단위: pe/peg/deq=배수, 그 외는 비율(0.15 = 15%)
+const SECTOR_PROFILES_US={
+  Technology:           {label:'기술',     peGood:35,peBad:55, pbGood:6,pbBad:12, psGood:6,psBad:12,  roeGood:0.18,roeBad:0.10, profitMGood:0.18,profitMBad:0.05, grossMGood:0.55,grossMBad:0.35, opMGood:0.20,opMBad:0.05, revGrowthGood:0.15,revGrowthBad:0,    earnGrowthGood:0.15,earnGrowthBad:0,    deqGood:60, deqBad:180},
+  'Communication Services':{label:'커뮤니케이션',peGood:30,peBad:50, pbGood:4,pbBad:9,  psGood:4,psBad:9,   roeGood:0.15,roeBad:0.08, profitMGood:0.15,profitMBad:0.05, grossMGood:0.50,grossMBad:0.30, opMGood:0.18,opMBad:0.05, revGrowthGood:0.10,revGrowthBad:0,    earnGrowthGood:0.10,earnGrowthBad:0,    deqGood:80, deqBad:200},
+  'Consumer Cyclical':  {label:'경기소비재',peGood:30,peBad:50, pbGood:4,pbBad:8,  psGood:2,psBad:5,   roeGood:0.15,roeBad:0.08, profitMGood:0.10,profitMBad:0.03, grossMGood:0.40,grossMBad:0.20, opMGood:0.10,opMBad:0.03, revGrowthGood:0.10,revGrowthBad:0,    earnGrowthGood:0.10,earnGrowthBad:0,    deqGood:80, deqBad:200},
+  'Consumer Defensive': {label:'필수소비재',peGood:25,peBad:40, pbGood:3,pbBad:6,  psGood:2,psBad:4,   roeGood:0.15,roeBad:0.08, profitMGood:0.08,profitMBad:0.02, grossMGood:0.30,grossMBad:0.15, opMGood:0.08,opMBad:0.03, revGrowthGood:0.05,revGrowthBad:0,    earnGrowthGood:0.05,earnGrowthBad:0,    deqGood:80, deqBad:200},
+  Healthcare:           {label:'헬스케어', peGood:30,peBad:50, pbGood:4,pbBad:9,  psGood:4,psBad:10,  roeGood:0.15,roeBad:0.08, profitMGood:0.15,profitMBad:0.05, grossMGood:0.50,grossMBad:0.30, opMGood:0.15,opMBad:0.05, revGrowthGood:0.10,revGrowthBad:0,    earnGrowthGood:0.10,earnGrowthBad:0,    deqGood:70, deqBad:180},
+  'Financial Services': {label:'금융',     peGood:15,peBad:25, pbGood:1.2,pbBad:2.5,psGood:4,psBad:9, roeGood:0.12,roeBad:0.06, profitMGood:0.20,profitMBad:0.08, grossMGood:0.50,grossMBad:0.20, opMGood:0.30,opMBad:0.10, revGrowthGood:0.05,revGrowthBad:0,    earnGrowthGood:0.08,earnGrowthBad:0,    deqGood:500,deqBad:1000},
+  Industrials:          {label:'산업재',   peGood:22,peBad:35, pbGood:3,pbBad:6,  psGood:1.5,psBad:3.5,roeGood:0.12,roeBad:0.06, profitMGood:0.08,profitMBad:0.02, grossMGood:0.30,grossMBad:0.15, opMGood:0.10,opMBad:0.03, revGrowthGood:0.05,revGrowthBad:0,    earnGrowthGood:0.08,earnGrowthBad:0,    deqGood:100,deqBad:250},
+  Energy:               {label:'에너지',   peGood:18,peBad:30, pbGood:2,pbBad:4,  psGood:1,psBad:2.5, roeGood:0.10,roeBad:0.04, profitMGood:0.08,profitMBad:0.02, grossMGood:0.30,grossMBad:0.15, opMGood:0.10,opMBad:0.03, revGrowthGood:0.05,revGrowthBad:-0.05,earnGrowthGood:0.05,earnGrowthBad:-0.10, deqGood:80, deqBad:200},
+  'Basic Materials':    {label:'기초소재', peGood:20,peBad:32, pbGood:2.5,pbBad:5,psGood:1.5,psBad:3, roeGood:0.10,roeBad:0.04, profitMGood:0.08,profitMBad:0.02, grossMGood:0.30,grossMBad:0.15, opMGood:0.10,opMBad:0.03, revGrowthGood:0.05,revGrowthBad:-0.05,earnGrowthGood:0.05,earnGrowthBad:-0.05, deqGood:100,deqBad:250},
+  'Real Estate':        {label:'부동산',   peGood:30,peBad:50, pbGood:2,pbBad:4,  psGood:5,psBad:12,  roeGood:0.08,roeBad:0.04, profitMGood:0.20,profitMBad:0.05, grossMGood:0.50,grossMBad:0.20, opMGood:0.30,opMBad:0.10, revGrowthGood:0.05,revGrowthBad:0,    earnGrowthGood:0.05,earnGrowthBad:0,    deqGood:200,deqBad:400},
+  Utilities:            {label:'유틸리티', peGood:22,peBad:32, pbGood:2,pbBad:4,  psGood:2,psBad:5,   roeGood:0.10,roeBad:0.05, profitMGood:0.10,profitMBad:0.04, grossMGood:0.40,grossMBad:0.20, opMGood:0.20,opMBad:0.05, revGrowthGood:0.03,revGrowthBad:0,    earnGrowthGood:0.03,earnGrowthBad:0,    deqGood:200,deqBad:400},
+  default:              {label:'일반',     peGood:22,peBad:35, pbGood:3,pbBad:6,  psGood:2,psBad:5,   roeGood:0.12,roeBad:0.06, profitMGood:0.10,profitMBad:0.03, grossMGood:0.40,grossMBad:0.20, opMGood:0.10,opMBad:0.03, revGrowthGood:0.05,revGrowthBad:0,    earnGrowthGood:0.05,earnGrowthBad:0,    deqGood:100,deqBad:200},
+};
+// 한국 시장 보정: 낮은 multiple + 높은 부채 허용
+const KR_SCALE={peGood:0.6,peBad:0.6,pbGood:0.7,pbBad:0.7,psGood:0.7,psBad:0.7,deqGood:2.0,deqBad:2.0};
+function getSectorProfile(sectorOrIndustry,isKorean){
+  const key=String(sectorOrIndustry||'');
+  const base=SECTOR_PROFILES_US[key]||SECTOR_PROFILES_US.default;
+  if(!isKorean)return base;
+  const out={};
+  for(const k in base){
+    out[k]=k in KR_SCALE?+(base[k]*KR_SCALE[k]).toFixed(3):base[k];
+  }
+  return out;
+}
+// 한국어 industry 키워드 → GICS 섹터 매핑 (영문 sector가 비어 있을 때 폴백)
+const KR_INDUSTRY_MAP=[
+  [/반도체|메모리|디스플레이|소프트웨어|게임|인터넷|클라우드|IT|소프트웨/,'Technology'],
+  [/통신|미디어|방송|광고/,'Communication Services'],
+  [/자동차|2차전지|전기차|유통|의류|화장품|호텔|레저|항공|여행/,'Consumer Cyclical'],
+  [/식품|음료|담배|생활용품|편의점/,'Consumer Defensive'],
+  [/바이오|제약|의료|병원|진단/,'Healthcare'],
+  [/은행|보험|증권|금융|카드|캐피탈|자산운용/,'Financial Services'],
+  [/건설|기계|조선|방산|중공업|운송|물류/,'Industrials'],
+  [/석유|정유|가스|에너지(?!솔루션)/,'Energy'],
+  [/철강|금속|화학|소재|시멘트|광업/,'Basic Materials'],
+  [/리츠|부동산/,'Real Estate'],
+  [/전력|수도|가스공사/,'Utilities'],
+];
+function mapKoreanIndustryToSector(industry){
+  const s=String(industry||'');
+  if(!s||s==='—')return '';
+  for(const [re,sec] of KR_INDUSTRY_MAP)if(re.test(s))return sec;
+  return '';
+}
 
 // 모든 실시간 소스가 실패할 때 최후 근사값 (as of 2026-05)
 const KNOWN_MCAP={
@@ -920,6 +1108,132 @@ function rsi(closes,n=14){
   if(al===0)return 100;
   return 100-100/(1+ag/al);
 }
+// 차트 오버레이용 시리즈 (롤링 윈도우, O(N))
+function smaSeries(arr,n){
+  const out=new Array(arr.length).fill(null);
+  if(arr.length<n)return out;
+  let s=0;
+  for(let i=0;i<n;i++)s+=arr[i];
+  out[n-1]=s/n;
+  for(let i=n;i<arr.length;i++){s+=arr[i]-arr[i-n];out[i]=s/n}
+  return out;
+}
+function rsiSeries(closes,n=14){
+  const out=new Array(closes.length).fill(null);
+  if(closes.length<n+1)return out;
+  let g=0,l=0;
+  for(let i=1;i<=n;i++){const d=closes[i]-closes[i-1];if(d>=0)g+=d;else l-=d}
+  let ag=g/n,al=l/n;
+  out[n]=al===0?100:100-100/(1+ag/al);
+  for(let i=n+1;i<closes.length;i++){
+    const d=closes[i]-closes[i-1];
+    const u=d>0?d:0,dn=d<0?-d:0;
+    ag=(ag*(n-1)+u)/n; al=(al*(n-1)+dn)/n;
+    out[i]=al===0?100:100-100/(1+ag/al);
+  }
+  return out;
+}
+// 가격·MA50·MA200 라인 차트 (마지막 N=252일). 정적 SVG 1회 렌더.
+function renderPriceChart(containerId,chart,ma50S,ma200S,opts={}){
+  const el=document.getElementById(containerId);
+  if(!el||!chart||!chart.length)return;
+  const N=Math.min(chart.length,252);
+  const start=chart.length-N;
+  const closes=chart.slice(start).map(x=>x.c);
+  const m50=ma50S.slice(start);
+  const m200=ma200S.slice(start);
+  // y 스케일: 가격+유효 MA 값들의 min/max
+  let lo=Infinity,hi=-Infinity;
+  for(const v of closes){if(v<lo)lo=v;if(v>hi)hi=v}
+  for(const v of m50)if(v!=null){if(v<lo)lo=v;if(v>hi)hi=v}
+  for(const v of m200)if(v!=null){if(v<lo)lo=v;if(v>hi)hi=v}
+  const pad=(hi-lo)*0.05||1;
+  lo-=pad;hi+=pad;
+  const W=600,H=180,padL=44,padR=8,padT=6,padB=18;
+  const x=i=>padL+(i/(N-1))*(W-padL-padR);
+  const y=v=>padT+(1-(v-lo)/(hi-lo))*(H-padT-padB);
+  const path=arr=>{
+    let d='',started=false;
+    for(let i=0;i<arr.length;i++){
+      if(arr[i]==null||!isFinite(arr[i]))continue;
+      d+=(started?'L':'M')+x(i).toFixed(1)+' '+y(arr[i]).toFixed(1)+' ';
+      started=true;
+    }
+    return d.trim();
+  };
+  const startDate=chart[start].d,endDate=chart[chart.length-1].d;
+  const fmt=d=>d.toLocaleDateString(opts.isKorean?'ko-KR':'en-US',{year:'2-digit',month:'short'});
+  const fmtP=opts.isKorean?(v=>'₩'+Math.round(v).toLocaleString('ko-KR')):(v=>'$'+v.toFixed(2));
+  // y축 그리드 3선
+  const grid=[];
+  for(let i=0;i<=3;i++){
+    const yv=lo+(hi-lo)*(i/3);
+    const yp=y(yv);
+    grid.push(`<line class="chart-grid" x1="${padL}" y1="${yp.toFixed(1)}" x2="${W-padR}" y2="${yp.toFixed(1)}"/>`);
+    grid.push(`<text class="chart-axis" x="${padL-4}" y="${(yp+3).toFixed(1)}" text-anchor="end">${fmtP(yv)}</text>`);
+  }
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="가격 차트">
+    ${grid.join('')}
+    <path class="line-ma200" d="${path(m200)}"/>
+    <path class="line-ma50" d="${path(m50)}"/>
+    <path class="line-price" d="${path(closes)}"/>
+    <text class="chart-axis" x="${padL}" y="${H-4}" text-anchor="start">${fmt(startDate)}</text>
+    <text class="chart-axis" x="${W-padR}" y="${H-4}" text-anchor="end">${fmt(endDate)}</text>
+  </svg>`;
+}
+// 거래량 막대 — 최근 60일, 직전 종가 대비 up/down 색상 분기
+function renderVolumeChart(containerId,chart){
+  const el=document.getElementById(containerId);
+  if(!el||!chart||chart.length<2)return;
+  const N=Math.min(chart.length,60);
+  const start=chart.length-N;
+  const slice=chart.slice(start);
+  let maxV=0;
+  for(const x of slice)if(x.v>maxV)maxV=x.v;
+  if(maxV<=0){el.innerHTML='';return}
+  const W=600,H=70,padL=44,padR=8,padT=4,padB=4;
+  const bw=(W-padL-padR)/N*0.8;
+  const gap=(W-padL-padR)/N*0.2;
+  const bars=[];
+  for(let i=0;i<slice.length;i++){
+    const cur=slice[i],prev=i===0?(start>0?chart[start-1]:cur):slice[i-1];
+    const up=cur.c>=prev.c;
+    const h=(cur.v/maxV)*(H-padT-padB);
+    const xx=padL+i*((W-padL-padR)/N)+gap/2;
+    const yy=H-padB-h;
+    bars.push(`<rect class="${up?'bar-vol-up':'bar-vol-down'}" x="${xx.toFixed(1)}" y="${yy.toFixed(1)}" width="${bw.toFixed(1)}" height="${h.toFixed(1)}"/>`);
+  }
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="거래량 차트">
+    ${bars.join('')}
+    <text class="chart-axis" x="${padL}" y="${H-1}" text-anchor="start">최근 ${N}일 거래량</text>
+  </svg>`;
+}
+// RSI(14) 라인 차트 — 30/70 기준선 포함
+function renderRsiChart(containerId,rsiArr){
+  const el=document.getElementById(containerId);
+  if(!el||!rsiArr)return;
+  const N=Math.min(rsiArr.length,252);
+  const start=rsiArr.length-N;
+  const slice=rsiArr.slice(start);
+  if(!slice.some(v=>v!=null)){el.innerHTML='';return}
+  const W=600,H=110,padL=28,padR=8,padT=4,padB=14;
+  const x=i=>padL+(i/(N-1))*(W-padL-padR);
+  const y=v=>padT+(1-v/100)*(H-padT-padB);
+  let d='',started=false;
+  for(let i=0;i<slice.length;i++){
+    const v=slice[i];
+    if(v==null||!isFinite(v))continue;
+    d+=(started?'L':'M')+x(i).toFixed(1)+' '+y(v).toFixed(1)+' ';
+    started=true;
+  }
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="RSI 차트">
+    <line class="ref-line" x1="${padL}" y1="${y(70).toFixed(1)}" x2="${W-padR}" y2="${y(70).toFixed(1)}"/>
+    <line class="ref-line" x1="${padL}" y1="${y(30).toFixed(1)}" x2="${W-padR}" y2="${y(30).toFixed(1)}"/>
+    <text class="chart-axis" x="${padL-4}" y="${(y(70)+3).toFixed(1)}" text-anchor="end">70</text>
+    <text class="chart-axis" x="${padL-4}" y="${(y(30)+3).toFixed(1)}" text-anchor="end">30</text>
+    <path class="line-rsi" d="${d.trim()}"/>
+  </svg>`;
+}
 function pct(a,b){return((a-b)/b)*100}
 function fmtNum(n,d=2){if(n==null||!isFinite(n))return'—';return n.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d})}
 function fmtPct(n,d=1){if(n==null||!isFinite(n))return'—';return(n>=0?'+':'')+n.toFixed(d)+'%'}
@@ -971,6 +1285,12 @@ async function run(){
   }
   // 차트 로드 성공한 시점에만 최근 본 종목에 추가 (잘못된 티커가 히스토리에 남지 않도록)
   addToRecent(rawTicker);
+  // 회사명 즉시 표시 — 펀더멘털 로드 전에 사용자가 어떤 회사인지 인지 가능
+  const headerName=chart._meta?.shortName||chart._meta?.longName
+    ||(isKr?(KR_NAMES[rawTicker]||displayTicker):displayTicker);
+  const headerSub=chart._meta?.exchangeName||(isKr?krMarket||'KRX':'');
+  document.getElementById('result-header').innerHTML=
+    `<div class="result-header"><strong>${escAttr(headerName)}</strong><span class="muted">${escAttr(displayTicker)}${headerSub?' · '+escAttr(headerSub):''}</span></div>`;
   status.innerHTML='<span class="loader"></span> 시그널 계산 중...';
 
   const closes=chart.map(x=>x.c);
@@ -1058,6 +1378,15 @@ async function run(){
   status.style.display='none';
   document.getElementById('results').style.display='block';
   showStaleNoticeIfAny();
+  // SVG 차트 3종 — rAF로 결과 패널 첫 paint 후로 미뤄 입력 응답성 보호
+  requestAnimationFrame(()=>{
+    const ma50S=smaSeries(closes,50);
+    const ma200S=smaSeries(closes,200);
+    const rsiArr=rsiSeries(closes,14);
+    renderPriceChart('chart-price',chart,ma50S,ma200S,{isKorean:isKr});
+    renderVolumeChart('chart-volume',chart);
+    renderRsiChart('chart-rsi',rsiArr);
+  });
   // chart를 넘겨 fallback 경로에서 차트 재요청 방지.
   loadFundamental(yahooTicker,{isKorean:isKr,code:rawTicker,market:krMarket},chart)
     .finally(()=>showStaleNoticeIfAny());
@@ -1383,19 +1712,13 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
 
     // ─── 펀더멘털 점수 (0~100) ────────────────────────────────────────────────
     const isETF=isETFRaw;
-    // 성장 섹터: 섹터명은 정확 일치, 산업명은 한국어 키워드만 부분일치 허용
-    // (기존엔 'IT' 같은 짧은 토큰이 무관한 industry 문자열에 부분일치해 false positive 발생)
-    const GROWTH_SECTOR_EXACT=new Set(['Technology','Communication Services','Consumer Cyclical','Healthcare']);
-    const GROWTH_INDUSTRY_KO=['반도체','바이오','소프트웨어','게임','인터넷','2차전지','전기차','클라우드'];
-    const isGrowth=GROWTH_SECTOR_EXACT.has(String(sector||''))
-      ||GROWTH_INDUSTRY_KO.some(s=>String(industry||'').includes(s));
-
-    // PE 기준: 한국은 미국보다 낮음 (성장주는 더 관대하게)
-    const peGood=isKorean?(isGrowth?22:12):(isGrowth?35:20);
-    const peBad=isKorean?(isGrowth?35:20):(isGrowth?55:35);
-    // 부채비율 기준: 한국 기업은 부채가 많은 경향
-    const deqGood=isKorean?120:50;
-    const deqBad=isKorean?250:150;
+    // 섹터 프로필: 영문 sector 우선, 없으면 한국어 industry 키워드로 매핑
+    const profile=getSectorProfile(sector||mapKoreanIndustryToSector(industry),isKorean);
+    const {peGood,peBad,pbGood,pbBad,psGood,psBad,
+           roeGood,roeBad,profitMGood,profitMBad,
+           grossMGood,grossMBad,opMGood,opMBad,
+           revGrowthGood,revGrowthBad,earnGrowthGood,earnGrowthBad,
+           deqGood,deqBad}=profile;
 
     let rawScore=0,maxScore=0;
     const add=(val,maxPts,pts)=>{if(val==null||!isFinite(val))return;rawScore+=pts;maxScore+=maxPts};
@@ -1405,11 +1728,11 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
       const peRecovering=pe!=null&&pe<0&&fpe!=null&&fpe>0&&fpe<peBad;
       add(pe,10, pe>0&&pe<peGood?10:pe>0&&pe<peBad?4:pe>0?-4:peRecovering?-2:-8);
       add(peg,8,  peg>0&&peg<1?8:peg>0&&peg<2?4:peg>0?-3:0);
-      add(roe,15, roe>0.15?15:roe>0.08?8:roe>=0?2:-12);
+      add(roe,15, roe>roeGood?15:roe>roeBad?8:roe>=0?2:-12);
       // margin이 P/S÷P/E 역산값이면 점수 산정에서 제외 (시각화에는 그대로 표시)
-      if(!marginCalculated)add(margin,12, margin>0.15?12:margin>0.03?6:margin>=0?1:-12);
-      add(revGrowth,12, revGrowth>0.10?12:revGrowth>0?5:-10);
-      add(earnGrowth,10, earnGrowth>0.10?10:earnGrowth>0?4:-8);
+      if(!marginCalculated)add(margin,12, margin>profitMGood?12:margin>profitMBad?6:margin>=0?1:-12);
+      add(revGrowth,12, revGrowth>revGrowthGood?12:revGrowth>revGrowthBad?5:-10);
+      add(earnGrowth,10, earnGrowth>earnGrowthGood?10:earnGrowth>earnGrowthBad?4:-8);
       add(debtEq,6, debtEq<deqGood?6:debtEq<deqBad?2:-8);
       add(currentRatio,5, currentRatio>1.5?5:currentRatio>1?2:-5);
     }
@@ -1479,49 +1802,51 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
     //   임계값이 시각적으로 같은 위치에 오게 함)
     // zones: 막대 배경의 빨강·노랑·초록 영역(폭은 % 합계 100)
     // hint: 막대 아래에 보일 임계 기준 설명 (초보자용)
+    // 섹터 임계값 기반 퍼센트 포맷 헬퍼 (소수→% 표기)
+    const pctThr=x=>(x*100).toFixed(0)+'%';
     const bars=[
       {l:'매출 성장',sub:'전년 대비',k:'revGrowth',v:revGrowth,
        fmt:x=>(x*100).toFixed(1)+'%',
        pos:x=>x<0?Math.max(0,25+x*100):x<0.1?25+(x/0.1)*25:x<0.3?50+((x-0.1)/0.2)*25:Math.min(100,75+((x-0.3)/0.7)*25),
        zones:[{w:25,c:'bad'},{w:25,c:'neutral'},{w:50,c:'good'}],
-       cls:x=>x>0.10?'good':x>0?'neutral':'bad',
-       verdict:x=>x>0.30?'고성장':x>0.10?'양호':x>0?'성장 중':'역성장',
-       hint:'0% 미만 = 역성장 · 10% 이상 = 양호 · 30% 이상 = 고성장'},
+       cls:x=>x>revGrowthGood?'good':x>revGrowthBad?'neutral':'bad',
+       verdict:x=>x>revGrowthGood*2?'고성장':x>revGrowthGood?'양호':x>revGrowthBad?'성장 중':'역성장',
+       hint:`${pctThr(revGrowthBad)} 미만 = 부진 · ${pctThr(revGrowthGood)} 이상 = 양호`},
       {l:'이익 성장',sub:'전년 대비',k:'earnGrowth',v:earnGrowth,
        fmt:x=>(x*100).toFixed(1)+'%',
        pos:x=>x<0?Math.max(0,25+x*100):x<0.1?25+(x/0.1)*25:x<0.3?50+((x-0.1)/0.2)*25:Math.min(100,75+((x-0.3)/0.7)*25),
        zones:[{w:25,c:'bad'},{w:25,c:'neutral'},{w:50,c:'good'}],
-       cls:x=>x>0.10?'good':x>0?'neutral':'bad',
-       verdict:x=>x>0.30?'우수':x>0.10?'양호':x>0?'성장 중':'이익 감소',
-       hint:'0% 미만 = 감소 · 10% 이상 = 양호 · 30% 이상 = 우수'},
+       cls:x=>x>earnGrowthGood?'good':x>earnGrowthBad?'neutral':'bad',
+       verdict:x=>x>earnGrowthGood*2?'우수':x>earnGrowthGood?'양호':x>earnGrowthBad?'성장 중':'이익 감소',
+       hint:`${pctThr(earnGrowthBad)} 미만 = 감소 · ${pctThr(earnGrowthGood)} 이상 = 양호`},
       {l:'ROE',sub:'자기자본이익률',k:'roe',v:roe,
        fmt:x=>(x*100).toFixed(1)+'%',
        pos:x=>x<0?Math.max(0,15+x*150):x<0.08?15+(x/0.08)*30:x<0.15?45+((x-0.08)/0.07)*30:Math.min(100,75+((x-0.15)/0.15)*25),
        zones:[{w:15,c:'bad'},{w:30,c:'neutral'},{w:55,c:'good'}],
-       cls:x=>x>0.15?'good':x>0.08?'neutral':'bad',
-       verdict:x=>x>0.20?'매우 우수':x>0.15?'우수':x>0.08?'양호':x>=0?'평범':'손실',
-       hint:'0% 미만 = 손실 · 8% 이상 = 양호 · 15% 이상 = 우수'},
+       cls:x=>x>roeGood?'good':x>roeBad?'neutral':'bad',
+       verdict:x=>x>roeGood*1.3?'매우 우수':x>roeGood?'우수':x>roeBad?'양호':x>=0?'평범':'손실',
+       hint:`${pctThr(roeBad)} 이상 = 양호 · ${pctThr(roeGood)} 이상 = 우수`},
       {l:'매출총이익률',sub:'원가 빼고 남는 비율',k:'grossM',v:grossM,
        fmt:x=>(x*100).toFixed(1)+'%',
        pos:x=>x<0?0:x<0.2?(x/0.2)*25:x<0.4?25+((x-0.2)/0.2)*25:x<0.6?50+((x-0.4)/0.2)*25:Math.min(100,75+((x-0.6)/0.4)*25),
        zones:[{w:25,c:'bad'},{w:25,c:'neutral'},{w:50,c:'good'}],
-       cls:x=>x>0.40?'good':x>0.20?'neutral':'bad',
-       verdict:x=>x>0.60?'매우 우수':x>0.40?'양호':x>0.20?'평범':'박한 마진',
-       hint:'20% 미만 = 박함 · 40% 이상 = 양호 · 60% 이상 = 우수'},
+       cls:x=>x>grossMGood?'good':x>grossMBad?'neutral':'bad',
+       verdict:x=>x>grossMGood*1.4?'매우 우수':x>grossMGood?'양호':x>grossMBad?'평범':'박한 마진',
+       hint:`${pctThr(grossMBad)} 미만 = 박함 · ${pctThr(grossMGood)} 이상 = 양호`},
       {l:'순이익률',sub:'매출 100원당 순이익',k:'margin',v:margin,
        fmt:x=>(x*100).toFixed(1)+'%',
        pos:x=>x<-0.10?Math.max(0,15+(x+0.1)*100):x<0?15+((x+0.1)/0.1)*15:x<0.10?30+(x/0.10)*30:x<0.20?60+((x-0.1)/0.1)*20:Math.min(100,80+((x-0.2)/0.3)*20),
        zones:[{w:30,c:'bad'},{w:30,c:'neutral'},{w:40,c:'good'}],
-       cls:x=>x>0.10?'good':x>0?'neutral':'bad',
-       verdict:x=>x>0.20?'매우 우수':x>0.10?'양호':x>0?'박한 흑자':'적자',
-       hint:'0% 미만 = 적자 · 10% 이상 = 양호 · 20% 이상 = 우수'},
+       cls:x=>x>profitMGood?'good':x>profitMBad?'neutral':'bad',
+       verdict:x=>x>profitMGood*1.5?'매우 우수':x>profitMGood?'양호':x>profitMBad?'박한 흑자':'적자/부진',
+       hint:`${pctThr(profitMBad)} 미만 = 박함 · ${pctThr(profitMGood)} 이상 = 양호`},
       {l:'부채비율(D/E)',sub:'낮을수록 좋음',k:'debtEq',v:debtEq,
        fmt:x=>x.toFixed(0)+'%',
        pos:x=>{const g=deqGood,b=deqBad;return x<=0?100:x<g?100-(x/g)*30:x<b?70-((x-g)/(b-g))*40:Math.max(0,30-((x-b)/b)*30)},
        zones:[{w:30,c:'bad'},{w:40,c:'neutral'},{w:30,c:'good'}],
        cls:x=>x<deqGood?'good':x<deqBad?'neutral':'bad',
        verdict:x=>x<deqGood?'재무 건전':x<deqBad?'보통':'부채 부담',
-       hint:`${deqGood}% 이하 = 건전 · ${deqBad}% 초과 = 부담${isKorean?' (한국 시장 기준)':''}`},
+       hint:`${deqGood.toFixed(0)}% 이하 = 건전 · ${deqBad.toFixed(0)}% 초과 = 부담${isKorean?' (한국 시장 기준)':''}`},
     ].filter(b=>b.v!=null&&isFinite(b.v));
 
     const dets=[];
@@ -1537,7 +1862,7 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
 
     box.innerHTML=`
       <div class="card">
-        <div class="section-title">펀더멘털 요약</div>
+        <div class="section-title">펀더멘털 요약${profile&&profile.label?`<span class="sector-hint">${escAttr(profile.label)} 업종 기준 적용</span>`:''}</div>
         <div class="fundamental-hero">
           <div class="company-box">
             <div class="company-name">${escAttr(name)}</div>
@@ -1583,7 +1908,35 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
   }
 }
 
-document.getElementById('ticker').addEventListener('keydown',e=>{if(e.key==='Enter')run()});
+// ─── 입력/키보드/외부클릭 핸들러 (자동완성 + 분석 트리거) ────────────────────
+(function(){
+  const input=document.getElementById('ticker');
+  const list=document.getElementById('suggest-list');
+  input.addEventListener('input',e=>handleSearchInput(e.target.value.trim()));
+  input.addEventListener('focus',e=>{
+    const v=e.target.value.trim();
+    if(v)handleSearchInput(v);
+  });
+  input.addEventListener('keydown',e=>{
+    if(e.key==='ArrowDown'){e.preventDefault();moveSuggest(1)}
+    else if(e.key==='ArrowUp'){e.preventDefault();moveSuggest(-1)}
+    else if(e.key==='Enter'){
+      if(_activeSuggest>=0){e.preventDefault();pickSuggestion(_activeSuggest)}
+      else{hideSuggest();run()}
+    }else if(e.key==='Escape'){hideSuggest()}
+  });
+  // 드롭다운 클릭은 위임 (개별 항목 핸들러 없음)
+  list.addEventListener('mousedown',e=>{
+    const item=e.target.closest('.suggest-item');
+    if(!item)return;
+    e.preventDefault(); // 인풋 blur 방지
+    pickSuggestion(+item.dataset.i);
+  });
+  // 외부 클릭 시 닫기
+  document.addEventListener('click',e=>{
+    if(!e.target.closest('.search-row'))hideSuggest();
+  });
+})();
 renderRecent();
 </script>
 </body>
