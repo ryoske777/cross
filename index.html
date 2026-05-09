@@ -270,21 +270,24 @@ async function getNaverFinanceData(code){
     // 엄격한 패턴: 라벨과 값 사이에 공백/콜론/파이프만 허용 (다른 필드 숫자 오인 방지)
     const SEP='\\s*[:：|]?\\s*';
     const NUM='(-?[0-9]+(?:\\.[0-9]+)?)';
+    // 퍼센트 값은 %를 캡처에 포함 — pctFromText가 단위 정보를 잃지 않게 함
+    // (예: 0.5% 같은 작은 비율도 0.5 vs 0.005 추정 없이 정확히 변환)
+    const PCT='((?:-?[0-9]+(?:\\.[0-9]+)?)\\s*%)';
     tryRegex('PER',[new RegExp(`(?:^|\\s)PER${SEP}${NUM}\\s*(?:배|$|\\s)`),new RegExp(`주가수익비율${SEP}${NUM}\\s*배`)]);
     tryRegex('PBR',[new RegExp(`(?:^|\\s)PBR${SEP}${NUM}\\s*(?:배|$|\\s)`),new RegExp(`주가순자산비율${SEP}${NUM}\\s*배`)]);
     tryRegex('추정PER',[new RegExp(`추정\\s*PER${SEP}${NUM}\\s*(?:배|$|\\s)`),new RegExp(`Forward\\s*(?:PER|P/E)${SEP}${NUM}`)]);
     tryRegex('PSR',[new RegExp(`(?:^|\\s)P/S${SEP}${NUM}\\s*(?:배|$|\\s)`),new RegExp(`주가매출액비율${SEP}${NUM}`)]);
-    tryRegex('ROE',[new RegExp(`(?:^|\\s)ROE${SEP}${NUM}\\s*%`),new RegExp(`자기자본이익률${SEP}${NUM}\\s*%`)]);
-    tryRegex('ROA',[new RegExp(`(?:^|\\s)ROA${SEP}${NUM}\\s*%`),new RegExp(`총자산이익률${SEP}${NUM}\\s*%`)]);
+    tryRegex('ROE',[new RegExp(`(?:^|\\s)ROE${SEP}${PCT}`),new RegExp(`자기자본이익률${SEP}${PCT}`)]);
+    tryRegex('ROA',[new RegExp(`(?:^|\\s)ROA${SEP}${PCT}`),new RegExp(`총자산이익률${SEP}${PCT}`)]);
     // 배당수익률은 "배당성향(payout ratio)"과 헷갈리지 않도록 매우 엄격하게
-    tryRegex('배당수익률',[new RegExp(`시가배당률${SEP}${NUM}\\s*%`),new RegExp(`배당수익률${SEP}${NUM}\\s*%`)]);
-    tryRegex('부채비율',[new RegExp(`(?:^|\\s)부채비율${SEP}${NUM}\\s*%`)]);
-    tryRegex('유동비율',[new RegExp(`(?:^|\\s)유동비율${SEP}${NUM}\\s*%`)]);
+    tryRegex('배당수익률',[new RegExp(`시가배당률${SEP}${PCT}`),new RegExp(`배당수익률${SEP}${PCT}`)]);
+    tryRegex('부채비율',[new RegExp(`(?:^|\\s)부채비율${SEP}${PCT}`)]);
+    tryRegex('유동비율',[new RegExp(`(?:^|\\s)유동비율${SEP}${PCT}`)]);
     // 순이익률/영업이익률은 라벨 직후의 % 값만 (성장률 등 다른 필드와 분리)
-    tryRegex('순이익률',[new RegExp(`(?:^|\\s)순이익률${SEP}${NUM}\\s*%`)]);
-    tryRegex('영업이익률',[new RegExp(`(?:^|\\s)영업이익률${SEP}${NUM}\\s*%`)]);
-    tryRegex('매출액증가율',[new RegExp(`매출액증가율${SEP}${NUM}\\s*%`)]);
-    tryRegex('당기순이익증가율',[new RegExp(`당기순이익증가율${SEP}${NUM}\\s*%`)]);
+    tryRegex('순이익률',[new RegExp(`(?:^|\\s)순이익률${SEP}${PCT}`)]);
+    tryRegex('영업이익률',[new RegExp(`(?:^|\\s)영업이익률${SEP}${PCT}`)]);
+    tryRegex('매출액증가율',[new RegExp(`매출액증가율${SEP}${PCT}`)]);
+    tryRegex('당기순이익증가율',[new RegExp(`당기순이익증가율${SEP}${PCT}`)]);
 
     // 시가총액 (조원/억원 단위)
     let mcap=null;
@@ -819,7 +822,6 @@ function fmtBig(n){if(n==null||!isFinite(n))return'—';const a=Math.abs(n);if(a
 async function run(){
   const rawTicker=document.getElementById('ticker').value.trim();
   if(!rawTicker)return;
-  addToRecent(rawTicker);
 
   const isKr=isKoreanTicker(rawTicker);
   const status=document.getElementById('status');
@@ -861,6 +863,8 @@ async function run(){
   }catch(e){
     status.innerHTML='<div class="empty-state">차트 데이터 로드 실패: '+e.message+'</div>';return;
   }
+  // 차트 로드 성공한 시점에만 최근 본 종목에 추가 (잘못된 티커가 히스토리에 남지 않도록)
+  addToRecent(rawTicker);
 
   const closes=chart.map(x=>x.c);
   const vols=chart.map(x=>x.v);
@@ -1388,7 +1392,7 @@ async function loadFundamental(ticker,opts={}){
     ].filter(b=>b.v!=null&&isFinite(b.v));
 
     const dets=[];
-    if(pe!=null)dets.push({k:'pe',ok:pe>0&&pe<peGood,bad:pe<0&&!(fpe!=null&&fpe>0&&fpe<peBad)||pe>peBad*1.3,t:`P/E ${fmtNum(pe)}`,v:pe>0&&pe<peGood?'합리적':pe>peBad?'고평가 우려':pe<0&&fpe!=null&&fpe>0?'실적 회복 중':pe<0?'적자':'다소 높음'});
+    if(pe!=null)dets.push({k:'pe',ok:pe>0&&pe<peGood,bad:(pe<0&&!(fpe!=null&&fpe>0&&fpe<peBad))||pe>peBad*1.3,t:`P/E ${fmtNum(pe)}`,v:pe>0&&pe<peGood?'합리적':pe>peBad?'고평가 우려':pe<0&&fpe!=null&&fpe>0?'실적 회복 중':pe<0?'적자':'다소 높음'});
     if(roe!=null)dets.push({k:'roe',ok:roe>0.15,bad:roe<0,t:`ROE ${(roe*100).toFixed(1)}%`,v:roe>0.15?'우수':roe>0.08?'양호':roe<0?'손실':'평범'});
     if(revGrowth!=null)dets.push({k:'revGrowth',ok:revGrowth>0.05,bad:revGrowth<0,t:`매출 성장 ${(revGrowth*100).toFixed(1)}%`,v:revGrowth>0.10?'고성장':revGrowth>0?'성장':'역성장'});
     if(debtEq!=null)dets.push({k:'debtEq',ok:debtEq<deqGood,bad:debtEq>deqBad*1.5,t:`D/E ${debtEq.toFixed(0)}%`,v:debtEq<deqGood?'재무 건전':debtEq<deqBad?'보통':'부채 부담'});
@@ -1403,9 +1407,9 @@ async function loadFundamental(ticker,opts={}){
         <div class="section-title">펀더멘털 요약</div>
         <div class="fundamental-hero">
           <div class="company-box">
-            <div class="company-name">${name}</div>
-            <div class="company-meta">${isKorean?code:ticker}${employees?` · 직원 ${employees.toLocaleString()}명`:''}</div>
-            <div class="tag-row">${tagList.map(t=>`<span class="tag${t.kr?' kr':''}">${t.t}</span>`).join('')}</div>
+            <div class="company-name">${escAttr(name)}</div>
+            <div class="company-meta">${escAttr(isKorean?code:ticker)}${employees?` · 직원 ${employees.toLocaleString()}명`:''}</div>
+            <div class="tag-row">${tagList.map(t=>`<span class="tag${t.kr?' kr':''}">${escAttr(t.t)}</span>`).join('')}</div>
           </div>
           <div class="fund-score">
             <div class="score-number" style="color:${gColor}">${adjustedScore!=null?adjustedScore:'—'}</div>
@@ -1442,7 +1446,7 @@ async function loadFundamental(ticker,opts={}){
       </div>`:''}
     `;
   }catch(e){
-    box.innerHTML=`<div class="card"><div class="section-title">펀더멘털 요약</div><div class="fundamental-hero"><div class="company-box"><div class="company-name">${isKorean?code:ticker}</div><div class="company-meta">공개 데이터 연결이 제한되어 기본 분석만 표시합니다.</div><div class="tag-row">${market?`<span class="tag kr">${market}</span>`:''}<span class="tag">대체 모드</span></div></div><div class="fund-score"><div class="score-number" style="color:var(--neutral)">50</div><div class="score-label">펀더멘털 점수 — <strong style="color:var(--neutral)">보통</strong></div></div></div></div><div class="card"><div class="empty-state">현재 무료 공개 소스에서 상세 지표를 찾지 못했습니다. 기술적 분석과 가격 기반 대체 지표를 함께 참고해 주세요.</div></div>`;
+    box.innerHTML=`<div class="card"><div class="section-title">펀더멘털 요약</div><div class="fundamental-hero"><div class="company-box"><div class="company-name">${escAttr(isKorean?code:ticker)}</div><div class="company-meta">공개 데이터 연결이 제한되어 기본 분석만 표시합니다.</div><div class="tag-row">${market?`<span class="tag kr">${escAttr(market)}</span>`:''}<span class="tag">대체 모드</span></div></div><div class="fund-score"><div class="score-number" style="color:var(--neutral)">50</div><div class="score-label">펀더멘털 점수 — <strong style="color:var(--neutral)">보통</strong></div></div></div></div><div class="card"><div class="empty-state">현재 무료 공개 소스에서 상세 지표를 찾지 못했습니다. 기술적 분석과 가격 기반 대체 지표를 함께 참고해 주세요.</div></div>`;
   }
 }
 
