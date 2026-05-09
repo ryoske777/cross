@@ -207,7 +207,7 @@ async function fetchText(url){
 }
 
 // ─── Korean stock utilities ───────────────────────────────────────────────────
-function isKoreanTicker(t){return /^\d{5,6}$/.test(String(t||'').trim())}
+function isKoreanTicker(t){return /^\d{6}$/.test(String(t||'').trim())}
 
 async function resolveKoreanTicker(code){
   for(const sfx of ['.KS','.KQ']){
@@ -450,7 +450,7 @@ function loadRecent(){try{const raw=localStorage.getItem(RECENT_KEY);return raw?
 function saveRecent(arr){try{localStorage.setItem(RECENT_KEY,JSON.stringify(arr.slice(0,RECENT_MAX)))}catch(_){}}
 function tickerLabel(t){
   const u=String(t||'').trim().toUpperCase();
-  if(/^\d{5,6}$/.test(u))return KR_NAMES[u]||u;
+  if(/^\d{6}$/.test(u))return KR_NAMES[u]||u;
   return u;
 }
 function escAttr(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
@@ -1036,27 +1036,66 @@ async function loadFundamental(ticker,opts={}){
     // KNOWN_MCAP / P/S × 매출 등 보강 fallback은 ps · stmtRevenue 계산 이후로 미룬다.
 
     // ─── 손익계산서·재무상태표에서 직접 계산 ────────────────────────────────────
-    // financialData 모듈이 없거나 불완전할 때 보완 (연간 데이터 기준 — 더 안정적)
+    // financialData 모듈이 없거나 불완전할 때 보완.
+    // 1순위: 연간 (안정적), 2순위: 최근 4분기 합산 TTM (연간이 없거나 오래된 경우)
     const isAnn=r.incomeStatementHistory?.incomeStatementHistory;
     const bsAnn=r.balanceSheetHistory?.balanceSheetHistory;
-    const isLast=isAnn?.[0]||{};
-    const isYear2=isAnn?.[1]||{};
+    const isAnnLast=isAnn?.[0]||{};
+    const isAnnPrev=isAnn?.[1]||{};
     const bsLast=bsAnn?.[0]||{};
-    const stmtRevenue=v(isLast.totalRevenue);
-    const stmtPrevRevenue=v(isYear2.totalRevenue);
-    const stmtNetIncome=v(isLast.netIncome);
-    const stmtGrossProfit=v(isLast.grossProfit);
-    const stmtOpIncome=v(isLast.operatingIncome)||v(isLast.ebit);
+    // TTM (최근 4분기 합산) — 연간 데이터가 비었을 때만 사용
+    const isQtrAll=r.incomeStatementHistoryQuarterly?.incomeStatementHistory||[];
+    const sumQtr=(field,n=4)=>{
+      if(!Array.isArray(isQtrAll)||isQtrAll.length<n)return null;
+      let s=0,ok=0;
+      for(let i=0;i<n;i++){const x=v(isQtrAll[i]?.[field]);if(x!=null){s+=x;ok++}}
+      return ok===n?s:null;
+    };
+    const annRevenue=v(isAnnLast.totalRevenue);
+    const annNetIncome=v(isAnnLast.netIncome);
+    const annGrossProfit=v(isAnnLast.grossProfit);
+    const annOpIncome=v(isAnnLast.operatingIncome)||v(isAnnLast.ebit);
+    const ttmRevenue=sumQtr('totalRevenue');
+    const ttmNetIncome=sumQtr('netIncome');
+    const ttmGrossProfit=sumQtr('grossProfit');
+    const ttmOpIncome=sumQtr('operatingIncome')||sumQtr('ebit');
+    // 직전 4분기(=8분기 중 5~8번째) 합 — TTM 기준 YoY 매출 성장률 비교용
+    const sumQtrPrior=field=>{
+      if(!Array.isArray(isQtrAll)||isQtrAll.length<8)return null;
+      let s=0,ok=0;
+      for(let i=4;i<8;i++){const x=v(isQtrAll[i]?.[field]);if(x!=null){s+=x;ok++}}
+      return ok===4?s:null;
+    };
+    const ttmPrevRevenue=sumQtrPrior('totalRevenue');
+    const stmtRevenue=annRevenue??ttmRevenue;
+    // stmtRevenue 가 어느 기준이냐에 따라 prev도 같은 기준으로 매칭 (단위 일치)
+    const stmtPrevRevenue=annRevenue!=null?v(isAnnPrev.totalRevenue):ttmPrevRevenue;
+    const stmtNetIncome=annNetIncome??ttmNetIncome;
+    const stmtGrossProfit=annGrossProfit??ttmGrossProfit;
+    const stmtOpIncome=annOpIncome??ttmOpIncome;
     const stmtSE=v(bsLast.totalStockholderEquity);
     const stmtAssets=v(bsLast.totalAssets);
     const stmtLiabilities=v(bsLast.totalLiab)||v(bsLast.totalLiabilities);
-    const stmtDebt=v(bsLast.longTermDebt)||v(bsLast.shortTermDebt)||v(bsLast.totalDebt);
+    // totalDebt(=장단기 합)을 우선 사용 — longTermDebt만 잡으면 단기 부채 누락
+    const stmtDebt=v(bsLast.totalDebt)??((v(bsLast.longTermDebt)||0)+(v(bsLast.shortTermDebt)||0))||null;
     const calcROE=stmtNetIncome!=null&&stmtSE!=null&&stmtSE!==0?stmtNetIncome/stmtSE:null;
     const calcROA=stmtNetIncome!=null&&stmtAssets!=null&&stmtAssets!==0?stmtNetIncome/stmtAssets:null;
     const calcProfitM=stmtNetIncome!=null&&stmtRevenue!=null&&stmtRevenue!==0?stmtNetIncome/stmtRevenue:null;
     const calcGrossM=stmtGrossProfit!=null&&stmtRevenue!=null&&stmtRevenue!==0?stmtGrossProfit/stmtRevenue:null;
     const calcOpM=stmtOpIncome!=null&&stmtRevenue!=null&&stmtRevenue!==0?stmtOpIncome/stmtRevenue:null;
     const calcRevGrowth=stmtRevenue!=null&&stmtPrevRevenue!=null&&stmtPrevRevenue!==0?(stmtRevenue-stmtPrevRevenue)/Math.abs(stmtPrevRevenue):null;
+    // 데이터 신선도 — 가장 최근 결산일 (연간 우선, 없으면 분기)
+    const annEndRaw=v(isAnnLast.endDate);
+    const qtrEndRaw=v(isQtrAll?.[0]?.endDate);
+    const reportEndTs=qtrEndRaw&&(!annEndRaw||qtrEndRaw>annEndRaw)?qtrEndRaw:annEndRaw;
+    const reportIsAnnual=reportEndTs===annEndRaw&&annEndRaw!=null;
+    const reportLabel=(()=>{
+      if(!reportEndTs)return null;
+      const d=new Date(reportEndTs*1000);
+      if(isNaN(d.getTime()))return null;
+      const y=d.getFullYear(),m=d.getMonth()+1,q=Math.ceil(m/3);
+      return reportIsAnnual?`${y} 연간 결산`:`${y} Q${q}`;
+    })();
     // P/S 계산 (시가총액 / 매출) — 여러 소스에서 시도
     let calcPS=null;
     if(mcapCalc&&stmtRevenue&&stmtRevenue!==0){
@@ -1103,6 +1142,14 @@ async function loadFundamental(ticker,opts={}){
     let earnGrowth=(()=>{if(_earnG0!=null)return _earnG0;return null})();
     const _debtEq0=pickNum('debtEq',v(fd.debtToEquity),fvz?.debtEq,sa?.debtEq,naver?.debtEq);
     let debtEq=(()=>{if(_debtEq0!=null)return _debtEq0;return null})();
+    // D/E 단위 자동 정규화: Yahoo는 보통 %(예: 63.5)지만 일부 응답에서 비율(0.63)로 옴.
+    // 0~5 범위면 비율로 간주해 ×100, 그 외는 % 그대로.
+    // (다만 절대값이 아주 작은 진짜 % 케이스(예: 0.5% = 거의 무차입)는 0~5 비율 범위와
+    //  구분 어려우므로 재무제표 직접 계산값과 비교해 보정)
+    if(debtEq!=null&&debtEq>=0&&debtEq<=5&&stmtLiabilities!=null&&stmtSE!=null&&stmtSE>0){
+      const calcDe=(stmtLiabilities/stmtSE)*100;
+      if(calcDe>10&&Math.abs(debtEq*100-calcDe)<Math.abs(debtEq-calcDe)){debtEq=debtEq*100;}
+    }
     const _currRatio0=pickNum('currRatio',v(fd.currentRatio),fvz?.currRatio,sa?.currRatio,naver?.currRatio);
     let currentRatio=(()=>{if(_currRatio0!=null)return _currRatio0;return null})();
     const beta=pickNum('beta',v(sd.beta),v(ks.beta),qteRaw?.beta,fvz?.beta,sa?.beta);
@@ -1195,6 +1242,7 @@ async function loadFundamental(ticker,opts={}){
     if(sa)sourceParts.push('StockAnalysis');
     if(knownUsed&&known)sourceParts.push(`${known.source}(${known.asOf})`);
     const sourceNote=sourceParts.length?sourceParts.join(' + '):'공개 가격/차트 데이터';
+    const freshnessNote=reportLabel?` · 재무 기준일: ${reportLabel}`:'';
 
     // ─── 펀더멘털 점수 (0~100) ────────────────────────────────────────────────
     const isETF=isETFRaw;
@@ -1233,8 +1281,10 @@ async function loadFundamental(ticker,opts={}){
     // (등급은 grade='데이터 부족'이 표시되며, 카드/시각화는 그대로 노출)
     // 점수 계산: 유효한 지표가 너무 적으면 등급을 매기지 않고 "데이터 부족"으로 표기
     // (기존의 +15 보정은 부실 기업을 가리는 부작용이 있어 제거)
+    // 임계: 유효 지표의 max 가중치 합이 30 미만이면 표본 부족으로 판단
+    // (전체 가중치 합은 약 78점 — pe10+peg8+roe15+margin12+revGrowth12+earnGrowth10+debtEq6+currRatio5)
     const score=maxScore?Math.max(0,Math.min(100,Math.round((rawScore/maxScore)*100))):null;
-    const dataInsufficient=(maxScore<20);
+    const dataInsufficient=(maxScore<30);
     const adjustedScore=score;
     let grade,gColor;
     if(isETF){grade='ETF (점수 미산정)';gColor='var(--text-tertiary)'}
@@ -1388,7 +1438,7 @@ async function loadFundamental(ticker,opts={}){
             <div class="bar-hint">${b.hint.split(' · ').map(s=>`<span>${s}</span>`).join('')}</div>
           </div>`}).join('')}
         </div>
-        <div class="mini-note">※ 데이터 소스: ${sourceNote}. ${usedFallback?'Yahoo 상세 API가 제한되어 보강 소스를 우선 사용했습니다.':'Yahoo 상세 API를 우선 사용했습니다.'}${knownUsed&&known?' · 일부 값은 최후 대체 스냅샷입니다.':''} ${marketNote}</div>
+        <div class="mini-note">※ 데이터 소스: ${sourceNote}${freshnessNote}. ${usedFallback?'Yahoo 상세 API가 제한되어 보강 소스를 우선 사용했습니다.':'Yahoo 상세 API를 우선 사용했습니다.'}${knownUsed&&known?' · 일부 값은 최후 대체 스냅샷입니다.':''} ${marketNote}</div>
       </div>`:''}
     `;
   }catch(e){
