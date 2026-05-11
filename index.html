@@ -261,15 +261,15 @@ button.primary:hover{background:var(--primary-hover)}
 const PROXIES=[
   u=>'https://corsproxy.io/?'+encodeURIComponent(u),
   u=>'https://api.allorigins.win/raw?url='+encodeURIComponent(u),
-  u=>'https://corsproxy.io/?url='+encodeURIComponent(u),
   u=>'https://api.codetabs.com/v1/proxy/?quest='+encodeURIComponent(u),
+  u=>'https://corsproxy.io/?url='+encodeURIComponent(u),
   u=>'https://proxy.cors.sh/'+u,
   u=>'https://thingproxy.freeboard.io/fetch/'+u,
 ];
 
-// 프록시 레이싱: 첫 프록시 즉시 발사, 나머지는 220ms 간격 점진 발사 → 첫 성공 채택.
+// 프록시 레이싱: 첫 프록시 즉시 발사, 나머지는 150ms 간격 점진 발사 → 첫 성공 채택.
 // 한 곳이 죽거나 느려도 다른 프록시가 곧 응답하면 전체 대기시간이 "가장 빠른 프록시"로 수렴.
-const PROXY_STAGGER_MS=220;
+const PROXY_STAGGER_MS=150;
 async function racingFetch(url,validate){
   const ctrls=PROXIES.map(()=>new AbortController());
   const timers=[];
@@ -476,12 +476,17 @@ async function getNaverStockJSON(code){
 }
 
 async function getNaverFinanceData(code){
-  // JSON API를 먼저 시도 — HTML 파싱보다 훨씬 안정적
-  const jsonData=await getNaverStockJSON(code);
+  // JSON API와 HTML 파싱을 동시에 발사 — 직렬 대기 제거
+  const url=`https://finance.naver.com/item/main.naver?code=${encodeURIComponent(code)}`;
+  const [jsonDataResult,htmlResult]=await Promise.allSettled([
+    getNaverStockJSON(code),
+    fetchText(url,TTL.HTML)
+  ]);
+  const jsonData=jsonDataResult.status==='fulfilled'?jsonDataResult.value:null;
 
   try{
-    const url=`https://finance.naver.com/item/main.naver?code=${encodeURIComponent(code)}`;
-    const html=await fetchText(url,TTL.HTML);
+    const html=htmlResult.status==='fulfilled'?htmlResult.value:null;
+    if(!html) throw new Error('html fetch failed');
     const doc=new DOMParser().parseFromString(html,'text/html');
     const m={};
     const text=htmlToPlainText(html);
@@ -1693,16 +1698,27 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
     };
   };
 
+  // getQuoteSummary와 보조 소스를 동시에 발사 — 순차 대기 제거 (1~2초 절약)
   let r,usedFallback=false;
-  try{r=await getQuoteSummary(ticker)}catch(_){r=await fallbackFundamental();usedFallback=true}
-
-  // 보조 소스: 한국 주식은 네이버 금융(2곳), 미국 주식은 Finviz + StockAnalysis
-  const results=await Promise.allSettled([
-    isKorean?getNaverFinanceData(code):getFinvizData(ticker),
-    isKorean?getKoreanStockDetailData(code):getStockAnalysisData(ticker),
-    getQuote(ticker)
+  const [summaryResult,suppResults]=await Promise.allSettled([
+    getQuoteSummary(ticker),
+    Promise.allSettled([
+      isKorean?getNaverFinanceData(code):getFinvizData(ticker),
+      isKorean?getKoreanStockDetailData(code):getStockAnalysisData(ticker),
+      getQuote(ticker)
+    ])
   ]);
 
+  if(summaryResult.status==='fulfilled'){
+    r=summaryResult.value;
+  }else{
+    try{r=await fallbackFundamental();usedFallback=true}
+    catch(_){r={}}
+  }
+
+  const results=suppResults.status==='fulfilled'?suppResults.value:[
+    {status:'rejected'},{status:'rejected'},{status:'rejected'}
+  ];
   const supp1=results[0].status==='fulfilled'?results[0].value:null;
   const supp2=results[1].status==='fulfilled'?results[1].value:null;
   const qteRaw=results[2].status==='fulfilled'?results[2].value:null;
