@@ -1103,7 +1103,8 @@ const FUND_LABELS=[
   'ROE','ROA','Gross Margin','Oper. Margin','Operating Margin','Profit Margin','Net Profit Margin','Net Margin','Debt/Eq','Debt / Equity','Current Ratio','Quick Ratio',
   'Sales Q/Q','Sales Y/Y TTM','Revenue Growth Forecast (5Y)','EPS this Y','EPS Y/Y TTM','EPS Q/Q','EPS next 5Y','EPS Growth Forecast (5Y)',
   'Beta','Beta (5Y)','PE Ratio','Forward PE','PS Ratio','PB Ratio','PEG Ratio','Return on Equity (ROE)','Return on Assets (ROA)',
-  'Employees','Price','Sales','Income'
+  'Employees','Price','Sales','Income',
+  'Inst Own','Inst Trans','Insider Own','Insider Trans','Short Float','Short Ratio','Short Interest'
 ];
 function decodeHtmlEntities(s){
   const text=String(s||'');
@@ -1219,7 +1220,13 @@ function parseFinvizHtml(html){
     mcap:      bigFromText(firstMetric(m,'Market Cap')),
     earnGrowth:pctFromText(firstMetric(m,'EPS Y/Y TTM','EPS Q/Q','EPS this Y','EPS next 5Y')),
     revGrowth: pctFromText(firstMetric(m,'Sales Q/Q','Sales Y/Y TTM')),
-    beta:      numFromText(firstMetric(m,'Beta'))
+    beta:      numFromText(firstMetric(m,'Beta')),
+    instOwnPct:      pctFromText(firstMetric(m,'Inst Own')),
+    instTransPct:    pctFromText(firstMetric(m,'Inst Trans')),
+    insiderOwnPct:   pctFromText(firstMetric(m,'Insider Own')),
+    insiderTransPct: pctFromText(firstMetric(m,'Insider Trans')),
+    shortFloatPct:   pctFromText(firstMetric(m,'Short Float')),
+    shortRatioVal:   numFromText(firstMetric(m,'Short Ratio')),
   };
 }
 function parseStockAnalysisHtml(html){
@@ -2356,7 +2363,25 @@ async function loadFlow(yahooTicker,opts={}){
   };
 
   if(!mh&&!io.length&&!ns){
-    box.innerHTML=`<div class="card"><div class="empty-state">Yahoo 공개 API에서 이 종목의 보유 정보를 가져오지 못했습니다. 미국 종목은 13F 분기 공시 기반이라 실시간성이 낮고, 일부 ETF/소형주는 공개되지 않을 수 있어요.</div></div>`;
+    // Finviz fallback: 기관/내부자 보유 요약
+    const fvFl=await getFinvizData(yahooTicker);
+    if(fvFl&&(fvFl.instOwnPct!=null||fvFl.insiderOwnPct!=null)){
+      const fmtSignedPct=v=>v==null?'—':`<span class="${v>=0?'pos':'neg'}">${v>=0?'+':''}${(v*100).toFixed(2)}%</span>`;
+      box.innerHTML=`
+        <div class="card">
+          <div class="section-title">소유 구조 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">· Finviz 집계</span></div>
+          <div class="flow-summary">
+            ${_flowStat('기관 보유 비중',fvFl.instOwnPct!=null?fvFl.instOwnPct.toFixed(2)+'%':'—','기관 투자자 합산')}
+            ${_flowStat('기관 순증감',fmtSignedPct(fvFl.instTransPct),'전분기 대비')}
+            ${_flowStat('내부자 보유',fvFl.insiderOwnPct!=null?fvFl.insiderOwnPct.toFixed(2)+'%':'—','임원·이사 등')}
+            ${_flowStat('내부자 순거래',fmtSignedPct(fvFl.insiderTransPct),'최근 6개월')}
+          </div>
+        </div>
+        <div class="disclaimer">⓵ Yahoo Finance 상세 API 제한으로 Finviz 집계 데이터를 사용합니다. 13F 공시보다 업데이트 주기가 다를 수 있습니다.</div>
+      `;
+    }else{
+      box.innerHTML=`<div class="card"><div class="empty-state">보유 정보를 가져오지 못했습니다. 미국 종목은 13F 분기 공시 기반이라 실시간성이 낮고, 일부 ETF/소형주는 공개되지 않을 수 있어요.</div></div>`;
+    }
     return;
   }
 
@@ -2535,22 +2560,45 @@ async function loadShort(yahooTicker,opts={},chart=[]){
   const shortDelta=(sharesShort!=null&&sharesShortPrev!=null)?sharesShort-sharesShortPrev:null;
   const shortDeltaPct=(sharesShort!=null&&sharesShortPrev)?(sharesShort/sharesShortPrev-1)*100:null;
 
-  const shortCard=haveShort?`
-    <div class="card">
-      <div class="section-title">공매도 스냅샷 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">${dateShortInterest?`· 기준일 ${escAttr(dateShortInterest)}`:''}</span></div>
-      <div class="flow-summary">
-        ${_flowStat('공매도 잔고',fmtBigSh(sharesShort),'주')}
-        ${_flowStat('Float 대비',shortPctOfFloat!=null?(shortPctOfFloat*100).toFixed(2)+'%':'—','유동 주식 기준')}
-        ${_flowStat('Days to Cover',shortRatio!=null?shortRatio.toFixed(1)+'일':'—','평균 거래량으로 환매까지')}
-        ${_flowStat('전월 대비',shortDeltaPct!=null?(shortDeltaPct>=0?'+':'')+shortDeltaPct.toFixed(1)+'%':'—',shortDelta!=null?(shortDelta>=0?'+':'')+fmtBigSh(shortDelta)+'주':'')}
+  let shortCard;
+  if(haveShort){
+    shortCard=`
+      <div class="card">
+        <div class="section-title">공매도 스냅샷 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">${dateShortInterest?`· 기준일 ${escAttr(dateShortInterest)}`:''}</span></div>
+        <div class="flow-summary">
+          ${_flowStat('공매도 잔고',fmtBigSh(sharesShort),'주')}
+          ${_flowStat('Float 대비',shortPctOfFloat!=null?(shortPctOfFloat*100).toFixed(2)+'%':'—','유동 주식 기준')}
+          ${_flowStat('Days to Cover',shortRatio!=null?shortRatio.toFixed(1)+'일':'—','평균 거래량으로 환매까지')}
+          ${_flowStat('전월 대비',shortDeltaPct!=null?(shortDeltaPct>=0?'+':'')+shortDeltaPct.toFixed(1)+'%':'—',shortDelta!=null?(shortDelta>=0?'+':'')+fmtBigSh(shortDelta)+'주':'')}
+        </div>
+        <div class="mini-note">
+          ${shortPctOfFloat!=null&&shortPctOfFloat>0.20?'⚠️ Float 대비 20% 초과 — 매우 높은 공매도. 숏스퀴즈 가능성도 함께 고려.':''}
+          ${shortPctOfFloat!=null&&shortPctOfFloat>0.10&&shortPctOfFloat<=0.20?'🔸 Float 대비 10~20% — 공매도 압력이 큰 편.':''}
+          ${shortPctOfFloat!=null&&shortPctOfFloat<=0.10?'🟢 Float 대비 10% 이하 — 일반적인 수준.':''}
+        </div>
       </div>
-      <div class="mini-note">
-        ${shortPctOfFloat!=null&&shortPctOfFloat>0.20?'⚠️ Float 대비 20% 초과 — 매우 높은 공매도. 숏스퀴즈 가능성도 함께 고려.':''}
-        ${shortPctOfFloat!=null&&shortPctOfFloat>0.10&&shortPctOfFloat<=0.20?'🔸 Float 대비 10~20% — 공매도 압력이 큰 편.':''}
-        ${shortPctOfFloat!=null&&shortPctOfFloat<=0.10?'🟢 Float 대비 10% 이하 — 일반적인 수준.':''}
-      </div>
-    </div>
-  `:`<div class="card"><div class="empty-state">Yahoo 공개 API에서 공매도 정보를 가져오지 못했습니다. (FINRA 공시 갱신 주기 또는 ETF/소형주 미공개)</div></div>`;
+    `;
+  }else{
+    // Finviz fallback: Short Float, Short Ratio
+    const fvSh=await getFinvizData(yahooTicker);
+    const fvShortPct=fvSh?.shortFloatPct;
+    const fvShortRatio=fvSh?.shortRatioVal;
+    if(fvShortPct!=null||fvShortRatio!=null){
+      const sfWarn=fvShortPct!=null&&fvShortPct>20?'⚠️ Float 대비 20% 초과 — 매우 높은 공매도.':fvShortPct!=null&&fvShortPct>10?'🔸 Float 대비 10~20% — 공매도 압력이 큰 편.':fvShortPct!=null?'🟢 Float 대비 10% 이하 — 일반적인 수준.':'';
+      shortCard=`
+        <div class="card">
+          <div class="section-title">공매도 스냅샷 <span style="color:var(--text-tertiary);font-weight:500;font-size:11.5px">· Finviz 집계</span></div>
+          <div class="flow-summary">
+            ${_flowStat('Float 대비 공매도',fvShortPct!=null?fvShortPct.toFixed(2)+'%':'—','유동 주식 기준')}
+            ${_flowStat('Days to Cover',fvShortRatio!=null?fvShortRatio.toFixed(1)+'일':'—','평균 거래량으로 환매까지')}
+          </div>
+          ${sfWarn?`<div class="mini-note">${sfWarn}</div>`:''}
+        </div>
+      `;
+    }else{
+      shortCard=`<div class="card"><div class="empty-state">공매도 정보를 가져오지 못했습니다. (FINRA 공시 갱신 주기 또는 ETF/소형주 미공개)</div></div>`;
+    }
+  }
 
   box.innerHTML=`${shortCard}${anomalyCard}<div class="disclaimer">미국 공매도 잔고는 FINRA가 <strong>2주에 1회</strong> 발표하며 시계열 차트는 본 화면에 미포함입니다. 시계열이 필요하면 NYSE/NASDAQ 공식 페이지를 참고하세요.</div>`;
 }
