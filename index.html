@@ -267,6 +267,10 @@ const PROXIES=[
   u=>'https://thingproxy.freeboard.io/fetch/'+u,
 ];
 
+// 직접 fetch 지원 도메인 — CORS 허용이 확인된 API (프록시 불필요)
+const DIRECT_FETCH_DOMAINS=['m.stock.naver.com'];
+function _isDirect(url){try{return DIRECT_FETCH_DOMAINS.some(d=>new URL(url).hostname===d)}catch(_){return false}}
+
 // 프록시 레이싱: 첫 프록시 즉시 발사, 나머지는 150ms 간격 점진 발사 → 첫 성공 채택.
 // 한 곳이 죽거나 느려도 다른 프록시가 곧 응답하면 전체 대기시간이 "가장 빠른 프록시"로 수렴.
 const PROXY_STAGGER_MS=150;
@@ -370,6 +374,18 @@ async function cachedFetch(url,policy,validate){
     _scheduleRefresh(url,validate);
     return ent.v;
   }
+  // CORS 허용 도메인은 직접 fetch 시도 → 성공 시 프록시 왕복 생략 (~1s 절약)
+  if(_isDirect(url)){
+    try{
+      const r=await fetch(url,{cache:'no-store'});
+      if(r.ok){
+        const body=await r.text();
+        if(validate)validate(body);
+        cacheSet(url,body);
+        return body;
+      }
+    }catch(_){}
+  }
   const body=await racingFetch(url,validate);
   cacheSet(url,body);
   return body;
@@ -430,12 +446,13 @@ async function getNaverStockJSON(code){
     const toN=v=>{const n=parseFloat(String(v||'').replace(/[,\s]/g,''));return isFinite(n)?n:null};
     const toP=v=>{const n=toN(v);return n!=null?n/100:null};
 
-    // 1차: 기본 정보 (PER, PBR, 배당 등)
-    const base=await fetchText(`https://m.stock.naver.com/api/stock/${code}/basicInfo`,TTL.QUOTE)
-      .then(t=>JSON.parse(t)).catch(()=>null);
-    // 2차: 재무 요약 (ROE, 영업이익률 등)
-    const fin=await fetchText(`https://m.stock.naver.com/api/stock/${code}/financeSummary`,TTL.QUOTE)
-      .then(t=>JSON.parse(t)).catch(()=>null);
+    // 기본 정보 + 재무 요약 동시 요청 (직전 순차 호출 → 병렬로 변경, ~0.5s 절약)
+    const [baseR,finR]=await Promise.allSettled([
+      fetchText(`https://m.stock.naver.com/api/stock/${code}/basicInfo`,TTL.QUOTE).then(t=>JSON.parse(t)),
+      fetchText(`https://m.stock.naver.com/api/stock/${code}/financeSummary`,TTL.QUOTE).then(t=>JSON.parse(t)),
+    ]);
+    const base=baseR.status==='fulfilled'?baseR.value:null;
+    const fin=finR.status==='fulfilled'?finR.value:null;
 
     if(!base&&!fin)return null;
 
@@ -1698,6 +1715,25 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
     };
   };
 
+  // 한국 주식: Naver JSON API가 가장 빠르므로 먼저 데이터를 받아 즉시 프리뷰 렌더.
+  // 전체 데이터가 도착하면 프리뷰를 최종 결과로 교체.
+  let _naverQuickDone=false;
+  if(isKorean&&code){
+    getNaverStockJSON(code).then(nd=>{
+      if(!nd||_naverQuickDone)return; // 이미 전체 렌더 완료면 무시
+      const fmt=v=>v==null?'—':(typeof v==='number'&&v<1?`${(v*100).toFixed(1)}%`:v.toLocaleString('ko-KR',{maximumFractionDigits:2}));
+      const row=(label,val)=>`<tr><td style="padding:5px 10px;color:var(--text-secondary);font-size:12px">${label}</td><td style="padding:5px 10px;font-weight:700;font-size:13px">${fmt(val)}</td></tr>`;
+      box.innerHTML=`<div class="card"><span class="loader" style="margin-right:8px"></span><span style="font-size:13px;color:var(--text-secondary)">기본 정보 로드 완료 · 상세 분석 중…</span>
+        <table style="margin-top:12px;border-collapse:collapse;width:100%">
+          ${row('PER (주가수익비율)',nd.pe)}${row('PBR (주가순자산비율)',nd.pb)}
+          ${row('ROE (자기자본이익률)',nd.roe!=null?nd.roe*100+'%':null)}
+          ${row('배당수익률',nd.divY!=null?(nd.divY*100).toFixed(2)+'%':null)}
+          ${nd.opMargin!=null?row('영업이익률',(nd.opMargin*100).toFixed(1)+'%'):''}
+          ${nd.revGrowth!=null?row('매출 성장률',(nd.revGrowth*100).toFixed(1)+'%'):''}
+        </table></div>`;
+    }).catch(()=>{});
+  }
+
   // getQuoteSummary와 보조 소스를 동시에 발사 — 순차 대기 제거 (1~2초 절약)
   let r,usedFallback=false;
   const [summaryResult,suppResults]=await Promise.allSettled([
@@ -2128,6 +2164,7 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
 
     const verdictHTML=!isETF?generateVerdictCard({pe,fpe,peg,pb,ps,roe,margin,revGrowth,earnGrowth,debtEq,currentRatio,beta,divY,profile,isKorean,score:adjustedScore,grade,pegCalculated}):'';
 
+    _naverQuickDone=true; // 전체 렌더 시작 — 프리뷰 덮어쓰기 차단
     box.innerHTML=`
       ${verdictHTML}
       <div class="card">
@@ -2173,6 +2210,7 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
       </div>`:''}
     `;
   }catch(e){
+    _naverQuickDone=true;
     box.innerHTML=`<div class="card"><div class="section-title">펀더멘털 요약</div><div class="fundamental-hero"><div class="company-box"><div class="company-name">${escAttr(isKorean?code:ticker)}</div><div class="company-meta">공개 데이터 연결이 제한되어 기본 분석만 표시합니다.</div><div class="tag-row">${market?`<span class="tag kr">${escAttr(market)}</span>`:''}<span class="tag">대체 모드</span></div></div><div class="fund-score"><div class="score-number" style="color:var(--neutral)">50</div><div class="score-label">펀더멘털 점수 — <strong style="color:var(--neutral)">보통</strong></div></div></div></div><div class="card"><div class="empty-state">현재 무료 공개 소스에서 상세 지표를 찾지 못했습니다. 기술적 분석과 가격 기반 대체 지표를 함께 참고해 주세요.</div></div>`;
   }
 }
