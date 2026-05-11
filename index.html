@@ -2197,14 +2197,15 @@ async function getNaverInvestorFlow(code){
   }catch(_){return null}
 }
 
-// 네이버 short.naver: 일자별 공매도 거래량/거래대금
+// 네이버 공매도: 페이지가 KRX iframe으로 전환됨 → 현재 HTML 파싱 불가
 async function getNaverShort(code){
   try{
-    const url=`https://finance.naver.com/item/frgn.naver?code=${encodeURIComponent(code)}`.replace('frgn.naver','short.naver');
+    const url=`https://finance.naver.com/item/short_trade.naver?code=${encodeURIComponent(code)}`;
     const html=await fetchText(url,TTL.HTML);
+    // short_trade.naver는 KRX iframe 임베드 페이지 → 실제 데이터 테이블 없음
+    if(html.includes('data.krx.co.kr')||html.includes('<iframe'))return null;
     const doc=new DOMParser().parseFromString(html,'text/html');
     const rows=[];
-    // 표 구조: 날짜 | 종가 | 전일비 | 등락률 | 거래량 | 공매도 거래량 | 공매도 거래대금
     doc.querySelectorAll('table tr').forEach(tr=>{
       const tds=tr.querySelectorAll('td');
       if(tds.length<6)return;
@@ -2456,7 +2457,7 @@ async function loadShort(yahooTicker,opts={},chart=[]){
   if(isKorean){
     const shortRows=await getNaverShort(code);
     if(!shortRows||!shortRows.length){
-      box.innerHTML=`${anomalyCard}<div class="card"><div class="empty-state">네이버 금융에서 이 종목의 공매도 데이터를 가져오지 못했어요.</div></div>`;
+      box.innerHTML=`${anomalyCard}<div class="card"><div class="empty-state">📋 공매도 데이터 준비 중<br><span style="font-size:12px;color:var(--text-tertiary)">네이버 금융이 공매도 페이지를 KRX 시스템으로 통합 중입니다. 이상신호 탐지는 위에서 확인하세요.</span></div></div>`;
       return;
     }
     const recent=shortRows.slice(0,10);
