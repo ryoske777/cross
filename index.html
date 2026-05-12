@@ -1484,7 +1484,7 @@ function renderLogSignalChart(containerId,sigArr){
     const x=padL+(i/N)*(W-padL-padR);
     const barH=Math.max(1,Math.abs(v)/absMax*half);
     const y=v>0?midY-barH:midY;
-    bars+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${v>0?'var(--up)':'var(--down)'}" opacity="0.82"/>`;
+    bars+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${v>0?'var(--good)':'var(--bad)'}" opacity="0.82"/>`;
   }
   el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="로그 신호 차트">
     <line class="ref-line" x1="${padL}" y1="${midY.toFixed(1)}" x2="${W-padR}" y2="${midY.toFixed(1)}"/>
