@@ -174,6 +174,16 @@ button.primary:hover{background:var(--primary-hover)}
 .anom-row .anom-date{font-weight:800;color:var(--text)}
 .anom-row .anom-detail{color:var(--text-secondary);font-size:12px}
 .disclaimer{background:var(--neutral-bg);color:var(--neutral);border-radius:10px;padding:11px 14px;font-size:12px;line-height:1.6;margin-top:10px}
+
+/* Signal analysis tab */
+.sig-period-row{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.sig-period-btn{background:var(--bg);border:1px solid var(--border);padding:5px 14px;font-size:12.5px;border-radius:6px;cursor:pointer;color:var(--text-secondary);font-weight:700;font-family:inherit}
+.sig-period-btn.active{background:var(--primary);color:#fff;border-color:var(--primary)}
+.sig-period-btn:hover:not(.active){border-color:var(--primary);color:var(--primary)}
+.sig-chart-candle{height:260px;display:block}
+.sig-chart-rsi2{height:90px;display:block}
+.sig-chart-log2{height:70px;display:block}
+.sig-tooltip{position:fixed;z-index:999;background:rgba(20,20,20,.94);color:#fff;font-size:11.5px;line-height:1.72;padding:9px 13px;border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.22);white-space:pre;pointer-events:none;display:none;font-family:inherit;font-variant-numeric:tabular-nums;border:1px solid rgba(255,255,255,.08)}
 </style>
 </head>
 <body>
@@ -214,6 +224,7 @@ button.primary:hover{background:var(--primary-hover)}
 <button class="tab-btn" data-tab="fund" onclick="switchTab('fund')">🏢 펀더멘털 분석</button>
 <button class="tab-btn" data-tab="flow" onclick="switchTab('flow')">🏦 수급 동향</button>
 <button class="tab-btn" data-tab="short" onclick="switchTab('short')">🩳 공매도·이상신호</button>
+<button class="tab-btn" data-tab="signal" onclick="switchTab('signal')">🔬 신호 분석</button>
 </div>
 
 <div id="tab-tech" class="tab-panel active">
@@ -234,11 +245,6 @@ button.primary:hover{background:var(--primary-hover)}
 <div id="chart-rsi" class="svg-chart svg-chart-rsi"></div>
 </div>
 <div class="card">
-<div class="section-title">가격·거래량 로그 신호</div>
-<div id="chart-logsig" class="svg-chart svg-chart-rsi"></div>
-<div class="chart-caption">최근 60일 · <span class="cap-up">매수 압력 (양봉+거래량 급증)</span> / <span class="cap-down">매도 압력 (음봉+거래량 급증)</span> · RSI 저점/고점 가중치 반영</div>
-</div>
-<div class="card">
 <div class="section-title">종합 신호 <span class="signal-legend"><span class="lg-good">✓ 긍정</span> · <span class="lg-bad">✗ 부정</span> · <span class="lg-neutral">• 중립</span></span></div>
 <div id="signals"></div>
 <div id="summary"></div>
@@ -255,6 +261,10 @@ button.primary:hover{background:var(--primary-hover)}
 
 <div id="tab-short" class="tab-panel">
 <div id="short-content"></div>
+</div>
+
+<div id="tab-signal" class="tab-panel">
+<div id="signal-content"></div>
 </div>
 </div>
 
@@ -799,6 +809,9 @@ function switchTab(name){
   }else if(name==='short'&&!_tabState.shortLoaded){
     _tabState.shortLoaded=true;
     loadShort(_tabState.ticker,_tabState,_tabState.chart).finally(showStaleNoticeIfAny);
+  }else if(name==='signal'&&!_tabState.signalLoaded){
+    _tabState.signalLoaded=true;
+    requestAnimationFrame(_initSigTab);
   }
 }
 
@@ -906,11 +919,11 @@ async function getChart(ticker){
     const j=await fetchJSON(url,policy);
     const r=j.chart.result[0];
     const ts=r.timestamp;
-    const c=r.indicators.quote[0].close;
-    const v=r.indicators.quote[0].volume;
+    const q=r.indicators.quote[0];
+    const o=q.open,h=q.high,l=q.low,c=q.close,v=q.volume;
     const out=[];
     for(let i=0;i<ts.length;i++){
-      if(c[i]!=null) out.push({d:new Date(ts[i]*1000),c:c[i],v:v[i]||0});
+      if(c[i]!=null) out.push({d:new Date(ts[i]*1000),o:o?.[i]??null,h:h?.[i]??null,l:l?.[i]??null,c:c[i],v:v?.[i]||0});
     }
     out._meta=r.meta||null; // 차트 응답 메타(shortName/longName 등) — 회사명 즉시 표시용
     return out;
@@ -920,7 +933,7 @@ async function getChart(ticker){
     const sym=ticker.toLowerCase()+'.us';
     const t=await fetchText(`https://stooq.com/q/d/l/?s=${sym}&i=d`,policy);
     const lines=t.trim().split('\n').slice(1);
-    return lines.map(l=>{const p=l.split(',');return{d:new Date(p[0]),c:+p[4],v:+p[5]||0}}).filter(x=>!isNaN(x.c)).slice(-520);
+    return lines.map(l=>{const p=l.split(',');return{d:new Date(p[0]),o:+p[1]||null,h:+p[2]||null,l:+p[3]||null,c:+p[4],v:+p[5]||0}}).filter(x=>!isNaN(x.c)).slice(-520);
   }
 }
 
@@ -1492,6 +1505,283 @@ function renderLogSignalChart(containerId,sigArr){
   </svg>`;
 }
 
+// ─── 신호 분석 탭 ──────────────────────────────────────────────────────────────
+let _sigState=null;
+let _sigDrag={active:false,startX:0,startViewStart:0,startViewEnd:0};
+let _sigDocListenerAdded=false;
+
+function _sigPeriodDays(p){return p==='1M'?22:p==='3M'?63:p==='6M'?126:p==='1Y'?252:Infinity}
+
+function _initSigTab(){
+  if(!_tabState||!_tabState.chart)return;
+  const chart=_tabState.chart;
+  const closes=chart.map(x=>x.c);
+  const vols=chart.map(x=>x.v);
+  const n=chart.length;
+  _sigState={
+    chart,closes,vols,
+    ma50S:smaSeries(closes,50),
+    ma200S:smaSeries(closes,200),
+    rsiArr:rsiSeries(closes,14),
+    logSig:logVolSignalSeries(closes,vols),
+    viewStart:Math.max(0,n-252),viewEnd:n-1,
+    isKorean:_tabState.isKorean,activePeriod:'1Y'
+  };
+  const el=document.getElementById('signal-content');
+  if(!el)return;
+  el.innerHTML=`
+<div class="card">
+<div class="section-title">신호 분석 <span class="sector-hint">캔들 · RSI · 로그신호</span></div>
+<div class="sig-period-row" id="sig-periods">
+  ${['1M','3M','6M','1Y','ALL'].map(p=>`<button class="sig-period-btn${p==='1Y'?' active':''}" data-period="${p}" onclick="setSigPeriod('${p}')">${p==='ALL'?'전체':p}</button>`).join('')}
+</div>
+<div id="sig-wrap-candle" style="position:relative;width:100%;cursor:crosshair;user-select:none;-webkit-user-select:none">
+  <div id="sig-candle" class="sig-chart-candle"></div>
+  <div id="sig-xhair" style="position:absolute;top:0;bottom:0;width:1px;background:rgba(128,128,128,.28);pointer-events:none;display:none;left:0"></div>
+</div>
+<div id="sig-rsi" class="sig-chart-rsi2" style="margin-top:4px"></div>
+<div id="sig-log" class="sig-chart-log2" style="margin-top:4px"></div>
+<div class="chart-caption">휠: 확대/축소 · 드래그: 이동 · 터치 핀치: 확대/축소 · <span class="cap-up">양봉</span> / <span class="cap-down">음봉</span> / <span style="color:var(--ma50);font-weight:700">MA50</span> / <span style="color:var(--ma200);font-weight:700">MA200</span></div>
+</div>`;
+  _sigAttachEvents();
+  _renderSigAll();
+}
+
+function setSigPeriod(p){
+  if(!_sigState)return;
+  _sigState.activePeriod=p;
+  const n=_sigState.chart.length;
+  const days=_sigPeriodDays(p);
+  _sigState.viewStart=Math.max(0,isFinite(days)?n-days:0);
+  _sigState.viewEnd=n-1;
+  document.querySelectorAll('.sig-period-btn').forEach(b=>b.classList.toggle('active',b.dataset.period===p));
+  _renderSigAll();
+}
+
+function _renderSigAll(){
+  if(!_sigState)return;
+  _drawSigCandle();
+  _drawSigRsi2();
+  _drawSigLog2();
+}
+
+function _drawSigCandle(){
+  const el=document.getElementById('sig-candle');
+  if(!el||!_sigState)return;
+  const {chart,ma50S,ma200S,viewStart,viewEnd,isKorean}=_sigState;
+  const N=viewEnd-viewStart+1;
+  if(N<2){el.innerHTML='';return;}
+  const slice=chart.slice(viewStart,viewEnd+1);
+  const m50=ma50S.slice(viewStart,viewEnd+1);
+  const m200=ma200S.slice(viewStart,viewEnd+1);
+  let lo=Infinity,hi=-Infinity;
+  for(const d of slice){
+    const hv=d.h!=null?d.h:d.c,lv=d.l!=null?d.l:d.c;
+    if(hv>hi)hi=hv;if(lv<lo)lo=lv;
+  }
+  for(const v of m50)if(v!=null){if(v>hi)hi=v;if(v<lo)lo=v;}
+  for(const v of m200)if(v!=null){if(v>hi)hi=v;if(v<lo)lo=v;}
+  const pad=(hi-lo)*0.04||1;lo-=pad;hi+=pad;
+  const W=600,H=240,padL=isKorean?62:52,padR=8,padT=8,padB=22;
+  const inner=W-padL-padR;
+  const xc=i=>padL+(i+0.5)*(inner/N);
+  const yv=v=>padT+(1-(v-lo)/(hi-lo))*(H-padT-padB);
+  const cw=Math.max(1.5,inner/N*0.72);
+  const parts=[];
+  for(let g=0;g<=4;g++){
+    const gv=lo+(hi-lo)*(g/4),gp=yv(gv);
+    parts.push(`<line class="chart-grid" x1="${padL}" y1="${gp.toFixed(1)}" x2="${W-padR}" y2="${gp.toFixed(1)}"/>`);
+    const lbl=isKorean?(hi>=1e6?'₩'+(gv/1e4).toFixed(0)+'만':hi>=1e4?'₩'+(gv/1e3).toFixed(0)+'K':'₩'+Math.round(gv).toLocaleString()):(hi>=1e4?'$'+(gv/1e3).toFixed(1)+'K':'$'+gv.toFixed(2));
+    parts.push(`<text class="chart-axis" x="${padL-4}" y="${(gp+3).toFixed(1)}" text-anchor="end">${lbl}</text>`);
+  }
+  for(let i=0;i<slice.length;i++){
+    const d=slice[i];
+    const o=d.o??d.c,h=d.h??d.c,l=d.l??d.c,c=d.c;
+    const up=c>=o;
+    const col=up?'var(--good)':'var(--bad)';
+    const cx=xc(i),yH=yv(h),yL=yv(l),yO=yv(o),yC=yv(c);
+    const bTop=Math.min(yO,yC),bH=Math.max(1.5,Math.abs(yO-yC));
+    parts.push(`<line x1="${cx.toFixed(1)}" y1="${yH.toFixed(1)}" x2="${cx.toFixed(1)}" y2="${yL.toFixed(1)}" stroke="${col}" stroke-width="1.2" opacity=".7"/>`);
+    parts.push(`<rect x="${(cx-cw/2).toFixed(1)}" y="${bTop.toFixed(1)}" width="${cw.toFixed(1)}" height="${bH.toFixed(1)}" fill="${col}" opacity=".88"/>`);
+  }
+  const maLine=(arr,cls)=>{let d='',s=false;for(let i=0;i<arr.length;i++){if(arr[i]==null||!isFinite(arr[i]))continue;d+=(s?'L':'M')+xc(i).toFixed(1)+' '+yv(arr[i]).toFixed(1)+' ';s=true;}return d?`<path class="${cls}" d="${d.trim()}"/>`:''};
+  parts.push(maLine(m200,'line-ma200'));
+  parts.push(maLine(m50,'line-ma50'));
+  const step=Math.max(1,Math.floor(N/5));
+  for(let i=0;i<N;i+=step){
+    if(slice[i]){const lbl=slice[i].d.toLocaleDateString(isKorean?'ko-KR':'en-US',{month:'short',day:'numeric'});parts.push(`<text class="chart-axis" x="${xc(i).toFixed(1)}" y="${H-4}" text-anchor="middle">${lbl}</text>`);}
+  }
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:100%;display:block" aria-label="캔들 차트">${parts.join('')}</svg>`;
+}
+
+function _drawSigRsi2(){
+  const el=document.getElementById('sig-rsi');
+  if(!el||!_sigState)return;
+  const {rsiArr,viewStart,viewEnd}=_sigState;
+  const slice=rsiArr.slice(viewStart,viewEnd+1);
+  const N=slice.length;
+  if(!N||!slice.some(v=>v!=null)){el.innerHTML='';return;}
+  const W=600,H=80,padL=28,padR=8,padT=4,padB=12;
+  const xc=i=>padL+(i+0.5)*((W-padL-padR)/N);
+  const yv=v=>padT+(1-v/100)*(H-padT-padB);
+  let d='',s=false;
+  for(let i=0;i<N;i++){const v=slice[i];if(v==null||!isFinite(v))continue;d+=(s?'L':'M')+xc(i).toFixed(1)+' '+yv(v).toFixed(1)+' ';s=true;}
+  const y70=yv(70).toFixed(1),y50=yv(50).toFixed(1),y30=yv(30).toFixed(1);
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:100%;display:block" aria-label="RSI">
+    <line class="chart-grid" x1="${padL}" y1="${y50}" x2="${W-padR}" y2="${y50}"/>
+    <line class="ref-line" x1="${padL}" y1="${y70}" x2="${W-padR}" y2="${y70}"/>
+    <line class="ref-line" x1="${padL}" y1="${y30}" x2="${W-padR}" y2="${y30}"/>
+    <text class="chart-axis" x="${padL-4}" y="${(+y70+3).toFixed(1)}" text-anchor="end">70</text>
+    <text class="chart-axis" x="${padL-4}" y="${(+y50+3).toFixed(1)}" text-anchor="end">50</text>
+    <text class="chart-axis" x="${padL-4}" y="${(+y30+3).toFixed(1)}" text-anchor="end">30</text>
+    <path class="line-rsi" d="${d.trim()}"/>
+  </svg>`;
+}
+
+function _drawSigLog2(){
+  const el=document.getElementById('sig-log');
+  if(!el||!_sigState)return;
+  const {logSig,viewStart,viewEnd}=_sigState;
+  const slice=logSig.slice(viewStart,viewEnd+1);
+  const N=slice.length;
+  const absMax=slice.reduce((m,v)=>v!=null?Math.max(m,Math.abs(v)):m,0);
+  if(!N||absMax===0){el.innerHTML='';return;}
+  const W=600,H=60,padL=28,padR=8,padT=4,padB=4;
+  const inner=W-padL-padR;
+  const half=(H-padT-padB)/2,midY=padT+half;
+  const barW=Math.max(1.2,inner/N-0.5);
+  let bars='';
+  for(let i=0;i<N;i++){
+    const v=slice[i];if(v==null)continue;
+    const x=padL+(i/N)*inner;
+    const bh=Math.max(1,Math.abs(v)/absMax*half);
+    const y=v>0?midY-bh:midY;
+    bars+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${bh.toFixed(1)}" fill="${v>0?'var(--good)':'var(--bad)'}" opacity=".82"/>`;
+  }
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" style="width:100%;height:100%;display:block" aria-label="로그신호">
+    <line class="ref-line" x1="${padL}" y1="${midY.toFixed(1)}" x2="${W-padR}" y2="${midY.toFixed(1)}"/>
+    <text class="chart-axis" x="${padL-4}" y="${(midY+3).toFixed(1)}" text-anchor="end">0</text>
+    ${bars}
+  </svg>`;
+}
+
+function _sigAttachEvents(){
+  const wrap=document.getElementById('sig-wrap-candle');
+  if(!wrap)return;
+  wrap.addEventListener('wheel',_sigWheel,{passive:false});
+  wrap.addEventListener('mousedown',_sigMD);
+  wrap.addEventListener('mousemove',_sigMM);
+  wrap.addEventListener('mouseleave',_sigML);
+  wrap.addEventListener('touchstart',_sigTS,{passive:false});
+  wrap.addEventListener('touchmove',_sigTM,{passive:false});
+  wrap.addEventListener('touchend',_sigTE,{passive:true});
+  if(!_sigDocListenerAdded){_sigDocListenerAdded=true;document.addEventListener('mouseup',_sigMU);}
+}
+
+function _sigWheel(e){
+  if(!_sigState)return;e.preventDefault();
+  const {viewStart,viewEnd,chart}=_sigState;
+  const len=viewEnd-viewStart+1;
+  const rect=e.currentTarget.getBoundingClientRect();
+  const frac=Math.max(0,Math.min(1,(e.clientX-rect.left)/rect.width));
+  const center=viewStart+Math.round(frac*len);
+  const factor=e.deltaY>0?1.18:1/1.18;
+  const newLen=Math.max(20,Math.min(chart.length,Math.round(len*factor)));
+  const newStart=Math.max(0,Math.min(chart.length-newLen,Math.round(center-frac*newLen)));
+  _sigState.viewStart=newStart;_sigState.viewEnd=Math.min(chart.length-1,newStart+newLen-1);
+  _renderSigAll();
+}
+
+function _sigMD(e){
+  if(!_sigState)return;
+  _sigDrag={active:true,startX:e.clientX,startViewStart:_sigState.viewStart,startViewEnd:_sigState.viewEnd};
+  e.currentTarget.style.cursor='grabbing';
+}
+function _sigMM(e){
+  if(!_sigState)return;
+  if(_sigDrag.active){
+    const wrap=document.getElementById('sig-wrap-candle');if(!wrap)return;
+    const len=_sigDrag.startViewEnd-_sigDrag.startViewStart+1;
+    const dx=e.clientX-_sigDrag.startX;
+    const shift=-Math.round(dx/wrap.getBoundingClientRect().width*len);
+    const n=_sigState.chart.length;
+    const ns=Math.max(0,Math.min(n-len,_sigDrag.startViewStart+shift));
+    _sigState.viewStart=ns;_sigState.viewEnd=Math.min(n-1,ns+len-1);
+    _renderSigAll();
+  }else{_sigShowTip(e);}
+}
+function _sigML(){_sigHideTip();if(_sigDrag.active){_sigDrag.active=false;const w=document.getElementById('sig-wrap-candle');if(w)w.style.cursor='crosshair';}}
+function _sigMU(){if(_sigDrag.active){_sigDrag.active=false;const w=document.getElementById('sig-wrap-candle');if(w)w.style.cursor='crosshair';}}
+
+let _sigTipEl=null;
+function _sigShowTip(e){
+  if(!_sigState)return;
+  const wrap=document.getElementById('sig-wrap-candle');if(!wrap)return;
+  const rect=wrap.getBoundingClientRect();
+  const frac=(e.clientX-rect.left)/rect.width;
+  const {viewStart,viewEnd,chart,rsiArr,logSig,ma50S,ma200S,isKorean}=_sigState;
+  const N=viewEnd-viewStart+1;
+  const padLF=(isKorean?62:52)/600,padRF=8/600;
+  const innerF=1-padLF-padRF;
+  const innerFrac=(frac-padLF)/innerF;
+  if(innerFrac<0||innerFrac>1){_sigHideTip();return;}
+  const idx=Math.max(viewStart,Math.min(viewEnd,Math.round(viewStart+innerFrac*N)));
+  const d=chart[idx];if(!d){_sigHideTip();return;}
+  const fP=v=>v==null?'—':isKorean?'₩'+Math.round(v).toLocaleString():'$'+v.toFixed(2);
+  const fV=v=>{if(!v&&v!==0)return'—';return v>=1e8?(v/1e8).toFixed(1)+'억':v>=1e6?(v/1e6).toFixed(1)+'M':v>=1e3?(v/1e3).toFixed(0)+'K':String(v)};
+  const o=d.o??d.c,h=d.h??d.c,l=d.l??d.c,c=d.c;
+  const rsi=rsiArr[idx],sig=logSig[idx],m50=ma50S[idx],m200=ma200S[idx];
+  const dt=d.d.toLocaleDateString(isKorean?'ko-KR':'en-US',{year:'numeric',month:'short',day:'numeric'});
+  if(!_sigTipEl){_sigTipEl=document.createElement('div');_sigTipEl.className='sig-tooltip';document.body.appendChild(_sigTipEl);}
+  _sigTipEl.textContent=[dt,`시가 ${fP(o)}  고가 ${fP(h)}`,`저가 ${fP(l)}  종가 ${fP(c)}`,`거래량 ${fV(d.v)}`,`MA50 ${fP(m50)}  MA200 ${fP(m200)}`,`RSI ${rsi!=null?rsi.toFixed(1):'—'}  로그신호 ${sig!=null?sig.toFixed(2):'—'}`].join('\n');
+  _sigTipEl.style.display='block';
+  const tw=_sigTipEl.offsetWidth||185,th=_sigTipEl.offsetHeight||125;
+  let tx=e.clientX+14,ty=e.clientY-Math.round(th/2);
+  if(tx+tw>window.innerWidth-8)tx=e.clientX-tw-14;
+  if(ty<8)ty=8;if(ty+th>window.innerHeight-8)ty=window.innerHeight-th-8;
+  _sigTipEl.style.left=tx+'px';_sigTipEl.style.top=ty+'px';
+  const ch=document.getElementById('sig-xhair');
+  if(ch){const xpct=(padLF+innerF*((idx-viewStart+0.5)/N))*100;ch.style.left=xpct+'%';ch.style.display='block';}
+}
+function _sigHideTip(){if(_sigTipEl)_sigTipEl.style.display='none';const ch=document.getElementById('sig-xhair');if(ch)ch.style.display='none';}
+
+let _sigPinch={active:false,d0:0,vs0:0,ve0:0,mf:0};
+function _sigTS(e){
+  if(!_sigState)return;
+  if(e.touches.length===2){
+    e.preventDefault();
+    const dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY;
+    const mx=(e.touches[0].clientX+e.touches[1].clientX)/2;
+    const rect=e.currentTarget.getBoundingClientRect();
+    _sigPinch={active:true,d0:Math.sqrt(dx*dx+dy*dy),vs0:_sigState.viewStart,ve0:_sigState.viewEnd,mf:(mx-rect.left)/rect.width};
+  }else if(e.touches.length===1){
+    _sigDrag={active:true,startX:e.touches[0].clientX,startViewStart:_sigState.viewStart,startViewEnd:_sigState.viewEnd};
+  }
+}
+function _sigTM(e){
+  if(!_sigState)return;e.preventDefault();
+  if(_sigPinch.active&&e.touches.length===2){
+    const dx=e.touches[0].clientX-e.touches[1].clientX,dy=e.touches[0].clientY-e.touches[1].clientY;
+    const d1=Math.sqrt(dx*dx+dy*dy);
+    const origLen=_sigPinch.ve0-_sigPinch.vs0+1;
+    const newLen=Math.max(20,Math.min(_sigState.chart.length,Math.round(origLen*_sigPinch.d0/d1)));
+    const center=_sigPinch.vs0+Math.round(_sigPinch.mf*origLen);
+    const ns=Math.max(0,Math.min(_sigState.chart.length-newLen,Math.round(center-_sigPinch.mf*newLen)));
+    _sigState.viewStart=ns;_sigState.viewEnd=Math.min(_sigState.chart.length-1,ns+newLen-1);
+    _renderSigAll();
+  }else if(_sigDrag.active&&e.touches.length===1){
+    const wrap=document.getElementById('sig-wrap-candle');if(!wrap)return;
+    const len=_sigDrag.startViewEnd-_sigDrag.startViewStart+1;
+    const dx=e.touches[0].clientX-_sigDrag.startX;
+    const shift=-Math.round(dx/wrap.getBoundingClientRect().width*len);
+    const n=_sigState.chart.length;
+    const ns=Math.max(0,Math.min(n-len,_sigDrag.startViewStart+shift));
+    _sigState.viewStart=ns;_sigState.viewEnd=Math.min(n-1,ns+len-1);
+    _renderSigAll();
+  }
+}
+function _sigTE(){_sigPinch.active=false;_sigDrag.active=false;}
+
 function pct(a,b){return((a-b)/b)*100}
 function fmtNum(n,d=2){if(n==null||!isFinite(n))return'—';return n.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d})}
 function fmtPct(n,d=1){if(n==null||!isFinite(n))return'—';return(n>=0?'+':'')+n.toFixed(d)+'%'}
@@ -1649,10 +1939,12 @@ async function run(){
   document.getElementById('results').style.display='block';
   // 새 종목 분석 시 첫 탭(기술적)으로 복귀 + 수급/공매도 탭 lazy 로드 상태 리셋
   switchTab('tech');
-  _tabState={ticker:yahooTicker,isKorean:isKr,code:rawTicker,market:krMarket,chart,flowLoaded:false,shortLoaded:false};
+  _sigState=null;
+  _tabState={ticker:yahooTicker,isKorean:isKr,code:rawTicker,market:krMarket,chart,flowLoaded:false,shortLoaded:false,signalLoaded:false};
   // 빈 상태 placeholder 표시 (탭 진입 전)
   document.getElementById('flow-content').innerHTML='<div class="card"><div class="empty-state" style="background:var(--bg);color:var(--text-tertiary)">🏦 수급 동향 탭을 누르면 데이터를 불러옵니다.</div></div>';
   document.getElementById('short-content').innerHTML='<div class="card"><div class="empty-state" style="background:var(--bg);color:var(--text-tertiary)">🩳 공매도·이상신호 탭을 누르면 데이터를 불러옵니다.</div></div>';
+  document.getElementById('signal-content').innerHTML='<div class="card"><div class="empty-state" style="background:var(--bg);color:var(--text-tertiary)">🔬 신호 분석 탭을 누르면 캔들차트를 불러옵니다.</div></div>';
   showStaleNoticeIfAny();
   // SVG 차트 3종 — rAF로 결과 패널 첫 paint 후로 미뤄 입력 응답성 보호
   requestAnimationFrame(()=>{
@@ -1662,7 +1954,6 @@ async function run(){
     renderPriceChart('chart-price',chart,ma50S,ma200S,{isKorean:isKr});
     renderVolumeChart('chart-volume',chart,{isKorean:isKr});
     renderRsiChart('chart-rsi',rsiArr);
-    renderLogSignalChart('chart-logsig',logSigSeries);
   });
   // chart를 넘겨 fallback 경로에서 차트 재요청 방지.
   loadFundamental(yahooTicker,{isKorean:isKr,code:rawTicker,market:krMarket},chart)
