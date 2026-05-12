@@ -234,6 +234,11 @@ button.primary:hover{background:var(--primary-hover)}
 <div id="chart-rsi" class="svg-chart svg-chart-rsi"></div>
 </div>
 <div class="card">
+<div class="section-title">가격·거래량 로그 신호</div>
+<div id="chart-logsig" class="svg-chart svg-chart-rsi"></div>
+<div class="chart-caption">최근 60일 · <span class="cap-up">매수 압력 (양봉+거래량 급증)</span> / <span class="cap-down">매도 압력 (음봉+거래량 급증)</span> · RSI 저점/고점 가중치 반영</div>
+</div>
+<div class="card">
 <div class="section-title">종합 신호 <span class="signal-legend"><span class="lg-good">✓ 긍정</span> · <span class="lg-bad">✗ 부정</span> · <span class="lg-neutral">• 중립</span></span></div>
 <div id="signals"></div>
 <div id="summary"></div>
@@ -348,6 +353,8 @@ function cacheSet(url,body){
 
 // SWR 백그라운드 갱신 — 동일 URL 동시 요청 한 건으로 합치기
 const _swrInflight={};
+// 진행 중인 primary fetch 중복 방지
+const _fetchInflight={};
 function _scheduleRefresh(url,validate){
   if(_swrInflight[url])return _swrInflight[url];
   _swrInflight[url]=racingFetch(url,validate)
@@ -374,21 +381,26 @@ async function cachedFetch(url,policy,validate){
     _scheduleRefresh(url,validate);
     return ent.v;
   }
-  // CORS 허용 도메인은 직접 fetch 시도 → 성공 시 프록시 왕복 생략 (~1s 절약)
-  if(_isDirect(url)){
-    try{
-      const r=await fetch(url,{cache:'no-store'});
-      if(r.ok){
-        const body=await r.text();
-        if(validate)validate(body);
-        cacheSet(url,body);
-        return body;
-      }
-    }catch(_){}
-  }
-  const body=await racingFetch(url,validate);
-  cacheSet(url,body);
-  return body;
+  // 동일 URL 동시 요청 합치기 — 첫 요청이 끝날 때까지 후속 요청은 같은 Promise 재사용
+  if(_fetchInflight[url])return _fetchInflight[url];
+  const _doFetch=async()=>{
+    if(_isDirect(url)){
+      try{
+        const r=await fetch(url,{cache:'no-store'});
+        if(r.ok){
+          const body=await r.text();
+          if(validate)validate(body);
+          cacheSet(url,body);
+          return body;
+        }
+      }catch(_){}
+    }
+    const body=await racingFetch(url,validate);
+    cacheSet(url,body);
+    return body;
+  };
+  _fetchInflight[url]=_doFetch().finally(()=>delete _fetchInflight[url]);
+  return _fetchInflight[url];
 }
 
 const _validateJSON=t=>{const j=JSON.parse(t);if(!j||typeof j!=='object')throw new Error('empty response');};
@@ -495,9 +507,16 @@ async function getNaverStockJSON(code){
 async function getNaverFinanceData(code){
   // JSON API와 HTML 파싱을 동시에 발사 — 직렬 대기 제거
   const url=`https://finance.naver.com/item/main.naver?code=${encodeURIComponent(code)}`;
+  // HTML이 캐시에 없을 때 CORS 프록시 왕복이 오래 걸림 → 2.5s 타임아웃으로 critical path 차단 방지
+  // 타임아웃 시 JSON 데이터만으로 반환; HTML은 백그라운드에서 계속 캐시에 적재됨
+  const htmlFetch=fetchText(url,TTL.HTML);
+  const htmlWithTimeout=Promise.race([
+    htmlFetch,
+    new Promise((_,rej)=>setTimeout(()=>rej(new Error('html_timeout')),2500))
+  ]);
   const [jsonDataResult,htmlResult]=await Promise.allSettled([
     getNaverStockJSON(code),
-    fetchText(url,TTL.HTML)
+    htmlWithTimeout
   ]);
   const jsonData=jsonDataResult.status==='fulfilled'?jsonDataResult.value:null;
 
@@ -1310,6 +1329,33 @@ function rsiSeries(closes,n=14){
   }
   return out;
 }
+// 가격·거래량 로그 합성 신호 시리즈
+// raw_signal_i = log(vol_i/sma20_i + 1) × (close_i - close_{i-1})/close_{i-1} × 100
+// 개선: RSI 위치 가중치 — 저점(RSI<45) 양봉은 신호 강화, 고점(RSI>55) 음봉은 신호 강화
+// → 단순 거래량×방향 외에 가격 위치까지 반영하여 저점 매수/고점 매도 정확도 향상
+function logVolSignalSeries(closes,vols){
+  const n=closes.length;
+  const out=new Array(n).fill(null);
+  const volSmaArr=smaSeries(vols,20);
+  const rsiArr=rsiSeries(closes,14);
+  for(let i=1;i<n;i++){
+    const vs=volSmaArr[i];
+    if(!vs||vs===0||!vols[i])continue;
+    const volRatio=vols[i]/vs;
+    const logVol=Math.log(volRatio+1);         // log(vol_ratio+1) — 항상 양수, 거래량 폭발 시 로그 스케일 완화
+    const priceChg=(closes[i]-closes[i-1])/closes[i-1]*100;  // 전일 대비 등락률
+    // RSI 위치 가중치: 0(중립)~1(극단) — 극단 위치에서 신호 최대 2배 증폭
+    let posW=0;
+    const ri=rsiArr[i];
+    if(ri!=null){
+      if(priceChg>0&&ri<45)posW=(45-ri)/45;      // 저점 양봉: RSI 낮을수록 강한 가중
+      else if(priceChg<0&&ri>55)posW=(ri-55)/45;  // 고점 음봉: RSI 높을수록 강한 가중
+    }
+    out[i]=logVol*priceChg*(1+posW);
+  }
+  return out;
+}
+
 // 가격·MA50·MA200 라인 차트 (마지막 N=252일). 정적 SVG 1회 렌더.
 function renderPriceChart(containerId,chart,ma50S,ma200S,opts={}){
   const el=document.getElementById(containerId);
@@ -1417,6 +1463,35 @@ function renderRsiChart(containerId,rsiArr){
     <path class="line-rsi" d="${d.trim()}"/>
   </svg>`;
 }
+// 가격·거래량 로그 신호 막대 차트 — 최근 60일, 중심선 기준 양수(매수압력)/음수(매도압력)
+function renderLogSignalChart(containerId,sigArr){
+  const el=document.getElementById(containerId);
+  if(!el||!sigArr||!sigArr.length)return;
+  const N=Math.min(sigArr.length,60);
+  const start=sigArr.length-N;
+  const slice=sigArr.slice(start);
+  if(!slice.some(v=>v!=null)){el.innerHTML='';return}
+  const W=600,H=80,padL=28,padR=8,padT=6,padB=6;
+  const absMax=slice.reduce((m,v)=>v!=null?Math.max(m,Math.abs(v)):m,0);
+  if(absMax===0){el.innerHTML='';return}
+  const half=(H-padT-padB)/2;
+  const midY=padT+half;
+  const barW=Math.max(1,(W-padL-padR)/N-0.5);
+  let bars='';
+  for(let i=0;i<slice.length;i++){
+    const v=slice[i];
+    if(v==null)continue;
+    const x=padL+(i/N)*(W-padL-padR);
+    const barH=Math.max(1,Math.abs(v)/absMax*half);
+    const y=v>0?midY-barH:midY;
+    bars+=`<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${barW.toFixed(1)}" height="${barH.toFixed(1)}" fill="${v>0?'var(--up)':'var(--down)'}" opacity="0.82"/>`;
+  }
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-label="로그 신호 차트">
+    <line class="ref-line" x1="${padL}" y1="${midY.toFixed(1)}" x2="${W-padR}" y2="${midY.toFixed(1)}"/>
+    ${bars}
+  </svg>`;
+}
+
 function pct(a,b){return((a-b)/b)*100}
 function fmtNum(n,d=2){if(n==null||!isFinite(n))return'—';return n.toLocaleString(undefined,{maximumFractionDigits:d,minimumFractionDigits:d})}
 function fmtPct(n,d=1){if(n==null||!isFinite(n))return'—';return(n>=0?'+':'')+n.toFixed(d)+'%'}
@@ -1498,6 +1573,8 @@ async function run(){
   const volAvg=sma(vols,20);
   const volRecent=sma(vols,5);
   const volRatio=volAvg&&volRecent?volRecent/volAvg:null;
+  // 가격·거래량 로그 신호 시리즈 — 차트 렌더 및 신호 섹션 공용
+  const logSigSeries=logVolSignalSeries(closes,vols);
 
   // 상대강도(RS): 단순 차감 대신 표준 비율식 ((1+r)/(1+rRef) - 1)
   // 변동성 큰 지수와 비교할 때도 비율 의미가 보존됨.
@@ -1546,6 +1623,10 @@ async function run(){
   sig(rsRef2!=null&&rsRef2>0,rsRef2!=null&&rsRef2<0,ref2Label+' 대비 수익률',fmtPct(rsRef2),2);
   sig(r1m!=null&&r1m>0,r1m!=null&&r1m<0,'1개월 수익률',fmtPct(r1m),1);
   sig(volRatio!=null&&volRatio>1.2,volRatio!=null&&volRatio<0.7,'최근 5일 거래량 (20일 평균 대비)',volRatio?volRatio.toFixed(2)+'x':'—',1);
+  // 가격·거래량 로그 신호 — 최근 5일 평균, RSI 저점/고점 가중치 반영
+  const _lsRecent=logSigSeries.slice(-5).filter(v=>v!=null);
+  const _lsAvg=_lsRecent.length?_lsRecent.reduce((a,b)=>a+b,0)/_lsRecent.length:null;
+  sig(_lsAvg!=null&&_lsAvg>0.5,_lsAvg!=null&&_lsAvg<-0.5,'가격·거래량 로그 신호 (5일 평균)',_lsAvg!=null?_lsAvg.toFixed(2):'—',2);
 
   document.getElementById('signals').innerHTML=sigs.map(s=>{
     const cls=s.ok?'signal-good':s.bad?'signal-bad':'signal-neutral';
@@ -1581,6 +1662,7 @@ async function run(){
     renderPriceChart('chart-price',chart,ma50S,ma200S,{isKorean:isKr});
     renderVolumeChart('chart-volume',chart,{isKorean:isKr});
     renderRsiChart('chart-rsi',rsiArr);
+    renderLogSignalChart('chart-logsig',logSigSeries);
   });
   // chart를 넘겨 fallback 경로에서 차트 재요청 방지.
   loadFundamental(yahooTicker,{isKorean:isKr,code:rawTicker,market:krMarket},chart)
@@ -1735,12 +1817,17 @@ async function loadFundamental(ticker,opts={},chartFromCaller){
   }
 
   // getQuoteSummary와 보조 소스를 동시에 발사 — 순차 대기 제거 (1~2초 절약)
+  // 무거운 HTML 스크래퍼(getKoreanStockDetailData / getStockAnalysisData)는 2.5s 타임아웃으로
+  // critical path 차단 방지 — 타임아웃 시 null로 처리, 캐시에 있으면 즉시 반환
+  const _toNull=ms=>new Promise(res=>setTimeout(()=>res(null),ms));
   let r,usedFallback=false;
   const [summaryResult,suppResults]=await Promise.allSettled([
     getQuoteSummary(ticker),
     Promise.allSettled([
       isKorean?getNaverFinanceData(code):getFinvizData(ticker),
-      isKorean?getKoreanStockDetailData(code):getStockAnalysisData(ticker),
+      isKorean
+        ?Promise.race([getKoreanStockDetailData(code),_toNull(2500)])
+        :Promise.race([getStockAnalysisData(ticker),_toNull(2500)]),
       getQuote(ticker)
     ])
   ]);
